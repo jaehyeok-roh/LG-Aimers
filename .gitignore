@@ -219,3 +219,9 @@ __marimo__/
 
 #data
 data/
+
+# Kaggle 커널 실행 산출물 (모델 바이너리 등, 용량 크고 재생성 가능)
+kaggle_output/
+kaggle_output_*/
+validation_sandbox/
+*.zip
