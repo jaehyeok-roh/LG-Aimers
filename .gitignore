@@ -228,3 +228,10 @@ validation_sandbox/
 
 # Kaggle push 설정 (로컬 전용, 계정/커널 정보라 비공개 유지)
 kernel-metadata.json
+# CatBoost 로컬 실행 로그
+catboost_info/
+
+# 제출물 로컬 조립 / 오프셋 커널 회수 (재생성 가능)
+build_v4/
+build_*/
+offset_output/
