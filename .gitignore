@@ -225,3 +225,6 @@ kaggle_output/
 kaggle_output_*/
 validation_sandbox/
 *.zip
+
+# Kaggle push 설정 (로컬 전용, 계정/커널 정보라 비공개 유지)
+kernel-metadata.json
