@@ -235,3 +235,4 @@ catboost_info/
 build_v4/
 build_*/
 offset_output/
+v5_out/
