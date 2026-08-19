@@ -241,3 +241,5 @@ v6_out/
 tmdyn_out/
 tmdyn6/
 screen_out/
+.kernels/
+topt_out/
