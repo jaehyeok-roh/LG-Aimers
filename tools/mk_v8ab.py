@@ -16,8 +16,12 @@ import ast, json, os, sys
 
 NB = 'aimers_tuned_ensemble.ipynb'
 
+S1 = os.environ.get('S1') == '1'      # 1-seed(10모델) 축소판. 부호만 보면 되는 절개용.
+PREFIX = 's1' if S1 else 'v8'
+
 VARIANTS = {
     #        DROP_CAL                        DECAY  REST   PB
+    'o': ("[]",                               "1.0", "False", "False"),  # 전부 끔 = v5 기준선
     'm': ("['game_month', 'game_dayofweek']", "1.0", "False", "False"),
     'r': ("[]",                               "1.0", "True",  "False"),
     'b': ("[]",                               "1.0", "False", "True"),
@@ -145,6 +149,10 @@ drop_cols += DROP_CAL        # 절개 실험: 변형 m 에서만 비어있지 �
     sub("""    + [f"model/{n}.csv" for n in ["cond_p", "cond_pc", "cond_ph", "cond_phc"]""",
         """    + [f"model/{n}.csv" for n in ["cond_p", "cond_pc", "cond_ph", "cond_phc", "cond_pb"]""")
 
+    if S1:
+        sub("SEEDS = [42, 202, 2024]       # seed 앙상블 (3개)",
+            "SEEDS = [42]                  # 절개용 축소 (10모델)")
+
     # ---------- 검사 ----------
     for i, c in enumerate(C):
         if c['cell_type'] == 'code':
@@ -164,20 +172,20 @@ drop_cols += DROP_CAL        # 절개 실험: 변형 m 에서만 비어있지 �
     if 'RUN_OPTUNA = False' not in src:
         sys.exit(f'[{tag}] RUN_OPTUNA 가 False 가 아니다')
 
-    D = f'.kernels/v8{tag}'
+    D = f'.kernels/{PREFIX}{tag}'
     os.makedirs(D, exist_ok=True)
     for c in C:
         if c['cell_type'] == 'code':
             c['outputs'] = []
             c['execution_count'] = None
-    json.dump(nb, open(f'{D}/aimers_v8{tag}.ipynb', 'w', encoding='utf-8'),
+    json.dump(nb, open(f'{D}/aimers_{PREFIX}{tag}.ipynb', 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     meta = json.load(open('kernel-metadata.json'))
-    meta.update(id=f'homekeggle/aimers-v8{tag}', title=f'aimers-v8{tag}',
-                code_file=f'aimers_v8{tag}.ipynb')
+    meta.update(id=f'homekeggle/aimers-{PREFIX}{tag}', title=f'aimers-{PREFIX}{tag}',
+                code_file=f'aimers_{PREFIX}{tag}.ipynb')
     json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
-    print(f'{D}/aimers_v8{tag}.ipynb  —  DROP_CAL={drop_cal} DECAY={decay} '
-          f'REST={rest} PB={pb}')
+    print(f'{D}/aimers_{PREFIX}{tag}.ipynb  —  DROP_CAL={drop_cal} DECAY={decay} '
+          f'REST={rest} PB={pb} SEEDS={"[42]" if S1 else "3개"}')
 
 
 for t in sys.argv[1:]:
