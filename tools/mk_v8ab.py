@@ -19,10 +19,18 @@ NB = 'aimers_tuned_ensemble.ipynb'
 S1 = os.environ.get('S1') == '1'      # 1-seed(10모델) 축소판. 부호만 보면 되는 절개용.
 PREFIX = 's1' if S1 else 'v8'
 
+# COND_DECAY 는 문자열 그대로 삽입되므로 음수를 '정규화 끔' 신호로 쓴다:
+#   0 < d <= 1 : 감쇠 d + 가중치 정규화 (s1d 에서 -11.05 로 실패한 방식)
+#   d < 0      : 감쇠 |d|, 정규화 없음  (유효표본이 작아진 만큼 자동으로 더 shrink)
 VARIANTS = {
     #        DROP_CAL                        DECAY  REST   PB
     'o': ("[]",                               "1.0", "False", "False"),  # 전부 끔 = v5 기준선
     'm': ("['game_month', 'game_dayofweek']", "1.0", "False", "False"),
+    'n': ("[]",                                "-0.25", "False", "False"),   # 정규화 없는 감쇠
+    # 월/요일 제거가 통한 이유가 "season 과 곱해져 시즌별 칸을 외운다" 라면, 소속팀도 같다
+    # (로스터가 해마다 바뀌므로 2025 의 팀 코드는 학습 때와 다른 집단을 가리킨다).
+    'mt': ("['game_month', 'game_dayofweek', 'pitcher_team_id', 'batter_team_id']",
+           "1.0", "False", "False"),
     'r': ("[]",                               "1.0", "True",  "False"),
     'b': ("[]",                               "1.0", "False", "True"),
     'd': ("[]",                               "0.25", "False", "False"),
@@ -101,10 +109,16 @@ if USE_COND_PB:
     g[name] = g['sum'] / (g['count'] + C)          # 0(리그평균)으로 shrink
     return g[keys + [name]]""",
         """def build_cond_table(src, keys, C, name, target_season):
-    # 시즌 감쇠. 가중치 합을 행 수에 맞춰 정규화하므로 C 의 의미는 감쇠값과 무관하다.
-    # COND_DECAY = 1.0 이면 w 가 전부 1 이라 원래 식(sum/(count+C))과 완전히 같다.
-    w = COND_DECAY ** ((target_season - 1) - src['season'].to_numpy())
-    w = w * (len(src) / w.sum())
+    # 시즌 감쇠. COND_DECAY = 1.0 이면 w 가 전부 1 이라 원래 식(sum/(count+C))과 완전히 같다.
+    #
+    # 음수는 '정규화 끔'. 2026-08-21 리더보드에서 정규화판(0.25)이 -11.05 로 최대 범인이었다.
+    # 원인: w 합을 행 수에 맞추면 분모가 6시즌치(1800+C)인데 분자는 사실상 최근 1시즌치라
+    # 과신이 된다. 정규화를 빼면 분모가 유효표본(400+C)으로 줄어 자동으로 더 shrink 된다 —
+    # 표본이 작으면 0(리그평균)에 붙는 원래 설계 의도가 그대로 살아난다.
+    _d = abs(COND_DECAY)
+    w = _d ** ((target_season - 1) - src['season'].to_numpy())
+    if COND_DECAY > 0:
+        w = w * (len(src) / w.sum())
     t = src[keys].copy()
     t['_w'] = w
     t['_wd'] = w * src['_dev'].to_numpy()
