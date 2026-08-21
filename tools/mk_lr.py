@@ -21,10 +21,12 @@
 #     어차피 OOF 로 판정하지 않는다.
 #
 # 사용: python tools/mk_lr.py
-import ast, json, os, sys
+import ast, json, os, sys   # noqa
 
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
-TAG = 'lr'
+# LR_SEASON_INTERACT=1 이면 선형항에 (시즌 x 각 피처) 상호작용을 넣는다 -> 태그 lr2
+INTERACT = os.environ.get('LR_SEASON_INTERACT') == '1'
+TAG = 'lr2' if INTERACT else 'lr'
 nb = json.load(open(BASE, encoding='utf-8'))
 C = nb['cells']
 
@@ -48,7 +50,11 @@ sub("USE_COND_PB = False", """USE_COND_PB = False
 # --- 전이 공격 (2026-08-21): 선형 baseline + 트리 잔차 ---
 USE_LR_BASELINE = True
 LR_C = 1.0            # L2 규제. 1.48M 행이라 약하게 걸어도 안정적이다
-LR_MAX_ITER = 120     # lbfgs. 수렴 경고가 떠도 baseline 용도로는 문제 없다""")
+LR_MAX_ITER = 120     # lbfgs. 수렴 경고가 떠도 baseline 용도로는 문제 없다
+# 시즌 x 피처 상호작용: 평범한 LR 은 season 이 선형항이라 2025 행 전체에 같은 상수를
+# 더할 뿐이다(= 재중심화와 사실상 동일). 상호작용을 넣어야 '피처와 결과의 관계 자체가
+# 해마다 어떻게 변해왔는지' 를 외삽한다. 전이 손실의 실체가 그것이라면 여기서 잡힌다.
+LR_SEASON_INTERACT = """ + str(INTERACT))
 
 # ---------- 2. LR 적합 헬퍼 (학습 셀 맨 앞) ----------
 sub("""X, y = X_full, y_full  # Cell 6a에서 만든 전체 데이터 재사용""",
@@ -72,6 +78,9 @@ def fit_lr_baseline(Xf, yf, save_to=None):
     mu = A.mean()
     sd = A.std().replace(0.0, 1.0).fillna(1.0)
     Z = ((A - mu) / sd).to_numpy()
+    if LR_SEASON_INTERACT:
+        _sc = Z[:, num.index('season')][:, None]
+        Z = np.hstack([Z, Z * _sc])          # [피처, 시즌 x 피처]
     lr = LogisticRegression(C=LR_C, max_iter=LR_MAX_ITER, solver='lbfgs')
     lr.fit(Z, yf)
     coef = lr.coef_[0].astype('float64')
@@ -79,12 +88,16 @@ def fit_lr_baseline(Xf, yf, save_to=None):
     if save_to:
         with open(save_to, 'w') as _f:
             json.dump({'cols': num, 'coef': coef.tolist(), 'intercept': icpt,
-                       'med': med.tolist(), 'mu': mu.tolist(), 'sd': sd.tolist()}, _f)
+                       'med': med.tolist(), 'mu': mu.tolist(), 'sd': sd.tolist(),
+                       'interact': bool(LR_SEASON_INTERACT)}, _f)
         print(f"  LR baseline 저장: {save_to} (수치피처 {len(num)}개)")
 
     def apply(Xg):
         B = Xg[num].astype('float64').fillna(med)
-        return ((B - mu) / sd).to_numpy() @ coef + icpt
+        G = ((B - mu) / sd).to_numpy()
+        if LR_SEASON_INTERACT:
+            G = np.hstack([G, G * G[:, num.index('season')][:, None]])
+        return G @ coef + icpt
 
     return apply
 
@@ -197,6 +210,8 @@ sub("""    import glob
         _A = df_features[_cols].astype("float64")
         _A = _A.fillna(pd.Series(_lrj["med"], index=_cols))
         _Z = (_A.to_numpy() - np.asarray(_lrj["mu"])) / np.asarray(_lrj["sd"])
+        if _lrj.get("interact"):
+            _Z = np.hstack([_Z, _Z * _Z[:, _cols.index("season")][:, None]])
         _lr_base = _Z @ np.asarray(_lrj["coef"]) + float(_lrj["intercept"])
         print("LR baseline 적용: 평균 %.4f 표준편차 %.4f" % (_lr_base.mean(), _lr_base.std()))
 
