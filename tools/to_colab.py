@@ -40,6 +40,20 @@ print("GPU:", _r.stdout.strip(), flush=True)
 '''
 
 
+EPILOGUE = '''# --- 산출물을 드라이브로 (런타임이 회수돼도 남게) ---
+import os, shutil
+_OUT = "/content/drive/MyDrive/aimers_ablation"
+os.makedirs(_OUT, exist_ok=True)
+_name = "__NAME__"
+for _s, _d in [("submit_tuned.zip", f"submit_{_name}.zip")]:
+    if os.path.exists(_s):
+        shutil.copy(_s, f"{_OUT}/{_d}")
+        print(f"{_s} -> {_OUT}/{_d}  ({os.path.getsize(_s)/1e6:.0f}MB)", flush=True)
+    else:
+        print(f"{_s} 없음 — 앞 셀이 실패했는지 확인할 것", flush=True)
+'''
+
+
 def cell(src):
     return {"cell_type": "code", "metadata": {}, "execution_count": None,
             "outputs": [], "source": src.splitlines(keepends=True)}
@@ -58,7 +72,9 @@ def main():
     md.setdefault("kernelspec", {"name": "python3", "display_name": "Python 3"})
 
     if not any("IS_COLAB" in "".join(c["source"]) for c in nb["cells"]):
-        nb["cells"] = [cell(SETUP), cell(GUARD)] + nb["cells"]
+        _nm = os.environ.get("AB_NAME") or os.path.basename(dst).replace("_colab.ipynb", "")
+        nb["cells"] = ([cell(SETUP), cell(GUARD)] + nb["cells"]
+                       + [cell(EPILOGUE.replace("__NAME__", _nm))])
 
     for c in nb["cells"]:
         if c["cell_type"] == "code":
