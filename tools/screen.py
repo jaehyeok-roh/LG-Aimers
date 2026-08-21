@@ -185,7 +185,50 @@ def cand_onehot(ctx, **kw):
     return _p(ctx, one_hot_max_size=16)
 
 
-CANDS = {'base': cand_base, 'ctr2': cand_ctr2, 'ctr3': cand_ctr3,
+def cand_bc128(ctx, **kw):
+    """결정적 실험: CPU(816)가 GPU(~790)보다 높은 이유가 border_count 인가.
+
+    CatBoost 기본값이 CPU 254 / GPU 128 이다. CPU 를 128 로 낮춰서 790 근처로
+    떨어지면 범인 확정이고, 그러면 본 학습(GPU)에 border_count=254 한 줄만 넣어도
+    +25 다. 이 축은 이 프로젝트에서 한 번도 건드린 적이 없다.
+    """
+    return _p(ctx, border_count=128)
+
+
+def cand_bc512(ctx, **kw):
+    """반대 방향. 254 가 좋으면 512 는 더 좋은가 (해상도 축의 기울기)."""
+    return _p(ctx, border_count=512)
+
+
+def cand_optbest(ctx, **kw):
+    """GPU Optuna 20 trial 최고 조합을 같은 3-fold CPU 하네스에서 재본다.
+    거기서는 대조군 766 -> 805 (+39) 였다."""
+    return _p(ctx, learning_rate=0.013514413699827602, depth=6,
+              l2_leaf_reg=9.842179645955403, bagging_temperature=0.38201955123496467,
+              random_strength=1.0055668048760378, iterations=1400,
+              border_count=128, max_ctr_complexity=2)
+
+
+def cand_bayes(ctx, **kw):
+    """결정적 실험 2: CPU(816) vs GPU(~790) 의 원인이 bootstrap_type 인가.
+
+    CatBoost 기본값이 CPU=MVS / GPU=Bayesian 이고 **MVS 는 CPU 전용**이다.
+    우리는 bagging_temperature(=Bayesian 전용 파라미터)를 넘기고 있는데 CPU 는 그걸
+    무시하고 MVS 를 쓴다. 즉 같은 코드가 두 기계에서 다른 알고리즘을 돌려왔다.
+    CPU 를 강제로 Bayesian 으로 바꿔 790 근처로 떨어지면 범인 확정이고,
+    그러면 **본 학습을 CPU 로 돌려야 한다**는 결론이 된다 (GPU 는 MVS 를 못 쓴다).
+    """
+    return _p(ctx, bootstrap_type='Bayesian')
+
+
+def cand_mvs_bc128(ctx, **kw):
+    """MVS 는 유지하고 border_count 만 GPU 값으로. 두 요인을 분리한다."""
+    return _p(ctx, border_count=128, bootstrap_type='MVS')
+
+
+CANDS = {'base': cand_base, 'bayes': cand_bayes, 'mvs_bc128': cand_mvs_bc128,
+         'bc128': cand_bc128, 'bc512': cand_bc512,
+         'optbest': cand_optbest, 'ctr2': cand_ctr2, 'ctr3': cand_ctr3,
          'onehot': cand_onehot, 'rsm70': cand_rsm70, 'rsm40': cand_rsm40,
          'lrbase': cand_lrbase, 'lrbase2': cand_lrbase2,
          'blend_recent': cand_blend_recent}
