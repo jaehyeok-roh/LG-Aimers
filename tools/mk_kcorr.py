@@ -26,13 +26,22 @@ pathlib.Path("pred_corr.py").write_text(
 # 마운트 경로를 **가정하지 않는다**. 처음 push 때 '/kaggle/input/aimers-zips' 를
 # 하드코딩했다가 FileNotFoundError 로 죽었다.
 print("input 마운트:", sorted(os.listdir("/kaggle/input")), flush=True)
-_c = glob.glob("/kaggle/input/*/train.csv") + glob.glob("/kaggle/input/*/*/train.csv")
-if not _c:
-    raise SystemExit("train.csv 를 못 찾음")
+
+
+def _tree():
+    for r, d, f in os.walk("/kaggle/input"):
+        if r.count("/") < 7:
+            print("   ", r, "->", sorted(d)[:6], sorted(f)[:6], flush=True)
+
+
+# ⚠️ 이 계정은 /kaggle/input/datasets/... 로 한 단계 더 깊이 마운트된다.
+# 깊이를 가정하지 말고 재귀로 찾는다 (2단계까지만 보다가 두 번 죽었다).
+_c = glob.glob("/kaggle/input/**/train.csv", recursive=True)
+_z = glob.glob("/kaggle/input/**/submit_*.zip", recursive=True)
+if not _c or not _z:
+    _tree()
+    raise SystemExit(f"못 찾음 — train.csv {{len(_c)}}개 / zip {{len(_z)}}개")
 DATA = os.path.dirname(_c[0])
-_z = glob.glob("/kaggle/input/*/submit_*.zip") + glob.glob("/kaggle/input/*/*/submit_*.zip")
-if not _z:
-    raise SystemExit("제출 zip 을 못 찾음 — 데이터셋이 안 붙었다")
 DS_DIR = os.path.dirname(_z[0])
 print("데이터 폴더:", DATA, flush=True)
 print("zip 폴더:", DS_DIR, sorted(os.listdir(DS_DIR)), flush=True)
