@@ -23,14 +23,19 @@ _B64 = """{b64}"""
 pathlib.Path("pred_corr.py").write_text(
     base64.b64decode("".join(_B64.split())).decode("utf-8"), encoding="utf-8")
 
-DS_DIR = "/kaggle/input/{DS.split('/')[-1]}"
-# train.csv 가 실제로 어디 있는지 찾는다 — 데이터셋 마운트 경로를 가정하지 않는다
+# 마운트 경로를 **가정하지 않는다**. 처음 push 때 '/kaggle/input/aimers-zips' 를
+# 하드코딩했다가 FileNotFoundError 로 죽었다.
+print("input 마운트:", sorted(os.listdir("/kaggle/input")), flush=True)
 _c = glob.glob("/kaggle/input/*/train.csv") + glob.glob("/kaggle/input/*/*/train.csv")
 if not _c:
-    raise SystemExit("train.csv 를 못 찾음: " + str(os.listdir("/kaggle/input")))
+    raise SystemExit("train.csv 를 못 찾음")
 DATA = os.path.dirname(_c[0])
-print("데이터셋 내용:", sorted(os.listdir(DS_DIR)), flush=True)
-print("데이터 폴더:", DATA, sorted(os.listdir(DATA))[:8], flush=True)
+_z = glob.glob("/kaggle/input/*/submit_*.zip") + glob.glob("/kaggle/input/*/*/submit_*.zip")
+if not _z:
+    raise SystemExit("제출 zip 을 못 찾음 — 데이터셋이 안 붙었다")
+DS_DIR = os.path.dirname(_z[0])
+print("데이터 폴더:", DATA, flush=True)
+print("zip 폴더:", DS_DIR, sorted(os.listdir(DS_DIR)), flush=True)
 
 # 캐글 input 은 읽기 전용이라 zip 을 작업 폴더로 복사한다
 names = {NAMES!r}
