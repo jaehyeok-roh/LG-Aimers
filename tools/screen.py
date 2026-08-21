@@ -185,6 +185,50 @@ def cand_onehot(ctx, **kw):
     return _p(ctx, one_hot_max_size=16)
 
 
+def _add_diffs(D):
+    """드리프트에 불변인 '차이' 피처.
+
+    트리는 축에 평행한 분할만 하므로 두 피처의 **뺄셈**을 표현하려면 분할이 수십 개
+    필요하다. 그래서 명시적으로 주는 게 통한다.
+
+    그리고 차이는 시즌 드리프트에 불변이다 — 리그 전체가 1%p 내려가면 두 항이 같이
+    내려가고 차이는 그대로다. 즉 2019 년에 배운 관계가 2025 년에도 성립한다.
+    이게 우리가 전이에서 잃고 있는 바로 그것이다.
+
+    ⚠️ 과거에 기각된 것들과 다르다: `asof_*` 시즌 디트렌드(-13)와 백분위 변환(+0)은
+    **수준 정규화**였고, 이건 두 피처 **사이의** 차이다.
+
+    현행 momentum_short/mid 는 prev1-prev3, prev1-prev5 로 **최근끼리의 차이**뿐이고
+    '자기 커리어 평균 대비' 는 없다 (step10 확인함).
+    """
+    P = 'asof_pitcher_success_rate'
+    out = {}
+    for n in (1, 3, 5):
+        c = f'asof_pitcher_prev{n}_game_success_rate'
+        if c in D and P in D:
+            out[f'd_form{n}'] = D[c] - D[P]            # 최근 폼 vs 자기 커리어
+    if 'asof_pitcher_prev3_game_middle_rate' in D and 'asof_pitcher_middle_rate' in D:
+        out['d_middle'] = (D['asof_pitcher_prev3_game_middle_rate']
+                           - D['asof_pitcher_middle_rate'])
+    if 'asof_batter_success_rate' in D and P in D:
+        out['d_pb'] = D[P] - D['asof_batter_success_rate']   # 투타 실력차
+    if 'smoothed_pitcher_success_rate' in D and P in D:
+        out['d_smooth'] = D['smoothed_pitcher_success_rate'] - D[P]
+    return out
+
+
+def cand_diff(ctx, **kw):
+    """차이 피처를 얹는다. 캐시의 기존 컬럼만으로 만들어지므로 파이프라인 변경이 없다."""
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in _add_diffs(Xh).items():
+        Xh[k] = v
+    for k, v in _add_diffs(Xv).items():
+        Xv[k] = v
+    print(f'    차이 피처 {Xh.shape[1] - ctx["Xh"].shape[1]}개 추가 '
+          f'-> {Xh.shape[1]}개', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def cand_bc128(ctx, **kw):
     """결정적 실험: CPU(816)가 GPU(~790)보다 높은 이유가 border_count 인가.
 
@@ -226,7 +270,7 @@ def cand_mvs_bc128(ctx, **kw):
     return _p(ctx, border_count=128, bootstrap_type='MVS')
 
 
-CANDS = {'base': cand_base, 'bayes': cand_bayes, 'mvs_bc128': cand_mvs_bc128,
+CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128': cand_mvs_bc128,
          'bc128': cand_bc128, 'bc512': cand_bc512,
          'optbest': cand_optbest, 'ctr2': cand_ctr2, 'ctr3': cand_ctr3,
          'onehot': cand_onehot, 'rsm70': cand_rsm70, 'rsm40': cand_rsm40,

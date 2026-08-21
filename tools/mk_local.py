@@ -17,7 +17,7 @@
 #   python out/train_local.py           # 실행 (5~6시간)
 import ast, json, os, sys
 
-BASE = '.kernels/s1o/aimers_s1o.ipynb'
+BASE = os.environ.get('LOCAL_BASE', '.kernels/s1o/aimers_s1o.ipynb')
 OUT_DIR = 'out'
 OUT = f'{OUT_DIR}/train_local.py'
 

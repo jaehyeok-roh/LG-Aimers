@@ -46,6 +46,9 @@ import numpy as np
 X.to_pickle(f'{OUT}/X.pkl')
 np.save(f'{OUT}/y.npy', y.to_numpy())
 np.save(f'{OUT}/season.npy', season)
+# row_id 도 저장한다 — 이게 없으면 추론 경로 산출물과 행 단위 대조를 할 수 없다
+# (4-15: run_full_pipeline 이 행 순서를 바꾸므로 train.csv 순서로는 못 맞춘다).
+np.save(f'{OUT}/row_id.npy', g['df_processed']['row_id'].to_numpy())
 meta = {'cat_features': list(g['cat_features']),
         'best_params': {k: v for k, v in g['BEST_PARAMS'].items() if k != 'cat_features'},
         'n_rows': int(len(X)), 'n_feats': int(X.shape[1]),
