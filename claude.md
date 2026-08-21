@@ -1092,12 +1092,33 @@ CPU 스크리너 **816**, GPU 오프셋 셀 **784~797**. 차이 약 **+26** 으�
 
 ### 노트북 계보 (혼동 방지용)
 
-**본 학습은 루트의 `aimers_tuned_ensemble.ipynb` 하나뿐이다** (v5, 990.9528).
-나머지 진단·스크리닝 노트북은 전부 `experiments/` 아래로 옮겼다.
+**본 학습 노트북은 루트에 둘이다.**
+
+| 파일 | 버전 | 리더보드 |
+|---|---|---|
+| **`aimers_v9m.ipynb`** | **v9m — 현행 최고** | **996.9977** |
+| `aimers_tuned_ensemble.ipynb` | v5 (이전 기준선) | 990.9528 |
+
+`aimers_v9m.ipynb` 는 v5 노트북에 **절개 실험용 플래그 4개**를 붙인 것이고,
+그중 **하나만 켜져 있다**:
+
+```python
+DROP_CAL      = ['game_month', 'game_dayofweek']   # ← 켜짐. 이게 +6.04 다
+COND_DECAY    = 1.0      # 1.0 = 감쇠 없음, v5 와 수식적으로 동일 (비트 단위 확인)
+USE_REST_FOUL = False
+USE_COND_PB   = False
+```
+
+나머지 셋은 꺼져 있을 때 v5 와 **완전히 같은 경로**를 탄다 — 절개 실험에서
+`COND_DECAY=1.0` 일 때 `cond_p.csv` 가 v5 와 비트 단위로 동일함을 확인했다.
+따라서 v9m 과 v5 의 행동 차이는 `DROP_CAL` 하나뿐이다.
+
+나머지 진단·스크리닝 노트북은 전부 `experiments/` 아래에 있다.
 각 노트북이 무엇을 재서 무슨 결론이 났는지는 **`experiments/README.md`** 에 한 줄씩 있다.
 
 ```
-aimers_tuned_ensemble.ipynb     본 학습 (v5, 리더보드 990.9528)
+aimers_v9m.ipynb                본 학습 (v9m, 리더보드 996.9977) — 현행
+aimers_tuned_ensemble.ipynb     이전 기준선 (v5, 990.9528)
 tools/                          매핑 재구축, 공식 베이스라인 재현
 experiments/
   capacity/   v7 · converge · loss · topt        반복수·손실함수·튜닝 (전부 소진)
