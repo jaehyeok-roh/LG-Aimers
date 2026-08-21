@@ -73,7 +73,7 @@ rid_path = 'cache/row_id.npy'
 if not os.path.exists(rid_path):
     sys.exit('cache/row_id.npy 가 없다. tools/make_cache.py 를 다시 돌려 row_id 를 저장할 것')
 X = X.copy()
-X.insert(0, 'row_id', np.load(rid_path))
+X.insert(0, 'row_id', np.load(rid_path, allow_pickle=True))   # row_id 는 문자열이라 객체 배열
 
 m = inf.merge(X, on='row_id', suffixes=('_inf', '_tr'), how='inner')
 print(f'\n대조 행 {len(m):,} / 추론 {len(inf):,} / 학습 {len(X):,}')
@@ -107,8 +107,8 @@ for c in cols:
         diff = int(mis.sum())
         if diff:
             i = mis.idxmax()
-            bad.append((c, diff, diff / len(m), '수치', f'{fa[i]}', f'{fb[i]}',
-                        [[int(m.loc[i, 'row_id'])]]))
+            bad.append((c, diff, diff / len(m), '수치', f'{fa[i]:.6g}', f'{fb[i]:.6g}',
+                        [[m.loc[i, 'row_id']]]))
 
 print('\n' + '=' * 68)
 if not bad:
@@ -118,6 +118,6 @@ else:
     print(f'⚠️ 불일치 {len(bad)}개 컬럼')
     print(f'{"컬럼":<38}{"불일치":>9}{"비율":>8}   추론 vs 학습 (예시)')
     for c, n, p, kind, va, vb, ex in bad:
-        print(f'{c:<38}{n:>9,}{p:>7.1%}   {va} vs {vb}   row_id={ex[0][0] if ex else "?"}')
+        print(f'{c:<34}{n:>8,}{p:>7.1%}  {kind}  {va} vs {vb}  ({ex[0][0] if ex else "?"})')
 print('=' * 68)
 print(f'\n작업 폴더는 남겨둔다: {work}')

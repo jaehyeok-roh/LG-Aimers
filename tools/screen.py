@@ -185,6 +185,65 @@ def cand_onehot(ctx, **kw):
     return _p(ctx, one_hot_max_size=16)
 
 
+def _mono_map(cols, aggressive):
+    """부호가 확실한 피처에만 단조 제약을 건다.
+
+    왜 이게 전이(transfer)에 듣는가: 트리는 학습 범위 밖을 외삽하지 못하고, 범위 **안**
+    에서도 축을 아무 모양으로나 쪼갤 수 있다. 2025 는 리그 성공률이 내려가 투수 통계
+    분포가 통째로 왼쪽으로 밀리므로, 지금 별로 안 쓰이던 저구간의 **우연한 굴곡**이
+    그때는 대량으로 쓰인다. 단조 제약은 그 굴곡을 금지한다.
+
+    선형 baseline(lrbase +7 / lrbase2 -183)과 정반대 접근이다. 그쪽은 외삽하는 항을
+    **더했고**, 이건 잘못 외삽할 자유도를 **뺀다**. 항을 더하면 공선성으로 불안정해지지만
+    (lrbase2 의 +0.120/-0.118 상쇄 쌍), 자유도를 빼는 쪽은 그런 실패 모드가 없다.
+
+    ⚠️ 단조 제약은 **편(partial)** 단조성이다. 다른 피처를 고정했을 때의 방향이
+    확실한 것만 넣어야 한다. 그래서 보수판(mono)은 '성공률' 계열만 건다.
+    """
+    m = {}
+    pos = ['asof_pitcher_success_rate', 'smoothed_pitcher_success_rate',
+           'asof_batter_success_rate',
+           'asof_pitcher_prev1_game_success_rate',
+           'asof_pitcher_prev3_game_success_rate',
+           'asof_pitcher_prev5_game_success_rate',
+           'cond_p', 'cond_pc', 'cond_ph', 'cond_phc']
+    for c in pos:
+        if c in cols:
+            m[c] = 1
+    if aggressive:
+        # 실패 유형 비율과 난이도 지수 — 방향은 자명하나 편효과는 덜 확실하다.
+        neg = [c for c in cols
+               if c.endswith('_middle_rate') or c.endswith('_reverse_rate')]
+        neg += [c for c in cols if c.startswith('past_') and c.endswith('_std')]
+        neg += [c for c in cols if c == 'expected_control_difficulty']
+        for c in neg:
+            m[c] = -1
+    return m
+
+
+def _mono(ctx, aggressive):
+    mm = _mono_map(list(ctx['Xh'].columns), aggressive)
+    print(f'    단조 제약 {len(mm)}개 '
+          f'(+{sum(v > 0 for v in mm.values())} / -{sum(v < 0 for v in mm.values())})',
+          flush=True)
+    # monotone_constraints 는 Ordered 부스팅과 같이 못 쓴다.
+    return _p(ctx, monotone_constraints=mm, boosting_type='Plain')
+
+
+def cand_mono(ctx, **kw):
+    return _mono(ctx, False)
+
+
+def cand_mono2(ctx, **kw):
+    return _mono(ctx, True)
+
+
+def cand_plain(ctx, **kw):
+    """mono 의 대조군. boosting_type='Plain' 자체의 효과를 분리한다 —
+    이걸 안 재면 mono 의 차이가 제약 때문인지 부스팅 방식 때문인지 알 수 없다."""
+    return _p(ctx, boosting_type='Plain')
+
+
 def _add_diffs(D):
     """드리프트에 불변인 '차이' 피처.
 
@@ -275,7 +334,8 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'optbest': cand_optbest, 'ctr2': cand_ctr2, 'ctr3': cand_ctr3,
          'onehot': cand_onehot, 'rsm70': cand_rsm70, 'rsm40': cand_rsm40,
          'lrbase': cand_lrbase, 'lrbase2': cand_lrbase2,
-         'blend_recent': cand_blend_recent}
+         'blend_recent': cand_blend_recent,
+         'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain}
 
 
 def main():
