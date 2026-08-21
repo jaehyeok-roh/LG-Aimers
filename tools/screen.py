@@ -312,6 +312,66 @@ def cand_optbest(ctx, **kw):
               border_count=128, max_ctr_complexity=2)
 
 
+def _optp(ctx, **over):
+    """optbest 조합에서 일부만 되돌린다."""
+    p = dict(learning_rate=0.013514413699827602, depth=6,
+             l2_leaf_reg=9.842179645955403, bagging_temperature=0.38201955123496467,
+             random_strength=1.0055668048760378, iterations=1400,
+             border_count=128, max_ctr_complexity=2)
+    p.update(over)
+    return _p(ctx, **p)
+
+
+def cand_opt254(ctx, **kw):
+    """optbest 에서 border_count 만 CPU 기본값으로."""
+    return _optp(ctx, border_count=254)
+
+
+def cand_opt254c1(ctx, **kw):
+    """optbest 에서 bc/ctr 을 둘 다 CPU 기본값으로 = '용량 파라미터만' 남긴 판.
+
+    이게 진짜 질문이다: CPU(MVS + bc254) 하네스에서 **용량 축의 최적점이 다른 자리에
+    있는가**. base 는 d8/lr0.0228/it1000, 이건 d6/lr0.0135/it1400 이다.
+
+    ⚠️ 결과가 크게 양수여도 그 자체로는 제출 근거가 못 된다. 이 조합은 총 학습량이
+    base 보다 17% 적고 깊이도 2단계 얕다 — 홀드아웃이 체계적으로 가산점을 준다고
+    문서화된 **규제 방향**이고, 그 편향이 만든 반복수 500 은 홀드아웃 +30 / 리더보드
+    -23 이었다. 이 축은 리더보드로만 판정한다.
+    """
+    return _optp(ctx, border_count=254, max_ctr_complexity=1)
+
+
+def cand_seasonbase(ctx, **kw):
+    """시즌 절편을 baseline 으로 빼고 트리는 편차만 학습하게 한다.
+
+    `season` 제거가 -424 였다는 건 트리가 **시즌 수준을 배우는 데 상당한 용량을 쓴다**
+    는 뜻이다. 그 수준을 절편으로 미리 주면 그 용량이 풀린다.
+
+    lrbase2(-183)와 결정적으로 다른 점: 선형항이 **시즌당 절편 하나**뿐이라
+    `smoothed +0.120 / cond_p -0.118` 같은 공선 쌍이 생길 수 없다. 재중심화(+18)가
+    이것을 상수 하나로 때운 crude 버전이다.
+
+    ⚠️ 검증 시즌 절편은 정답을 보면 안 된다 — 학습 시즌만으로 외삽한다
+    (최근 3년 선형, CLAUDE.md 실측 오차 0.0016).
+    """
+    sh, yh = ctx['sh'], ctx['yh']
+    rate = {int(s): float(yh[sh == s].mean()) for s in np.unique(sh)}
+    ss = sorted(rate)
+    a, b = np.polyfit(ss[-3:], [rate[s] for s in ss[-3:]], 1)
+    nxt = float(np.clip(a * HOLDOUT + b, 0.30, 0.70))
+    print(f'    시즌 절편 {[f"{s}:{rate[s]:.4f}" for s in ss]}'
+          f' -> {HOLDOUT} 외삽 {nxt:.4f} (실제 {ctx["target"]:.4f})', flush=True)
+
+    def lg(p):
+        p = np.clip(p, 1e-6, 1 - 1e-6)
+        return np.log(p / (1 - p))
+
+    bh = lg(np.array([rate[int(s)] for s in sh], dtype=np.float64))
+    bv = np.full(len(ctx['Xv']), float(lg(nxt)), dtype=np.float64)
+    return cv_predict(ctx['Xh'], yh, ctx['Xv'], ctx['params'], ctx['cat'],
+                      baseline=bh, base_v=bv)
+
+
 def cand_bayes(ctx, **kw):
     """결정적 실험 2: CPU(816) vs GPU(~790) 의 원인이 bootstrap_type 인가.
 
@@ -335,7 +395,9 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'onehot': cand_onehot, 'rsm70': cand_rsm70, 'rsm40': cand_rsm40,
          'lrbase': cand_lrbase, 'lrbase2': cand_lrbase2,
          'blend_recent': cand_blend_recent,
-         'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain}
+         'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain,
+         'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
+         'seasonbase': cand_seasonbase}
 
 
 def main():

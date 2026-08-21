@@ -16,7 +16,7 @@ import ast, base64, json, os, sys
 
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
 STOP = 'BEST_PARAMS = _found'
-TAG = 'kscreen'
+TAG = os.environ.get('KS_TAG', 'kscreen')   # 커널을 동시에 여러 개 띄우려면 바꾼다
 CANDS = sys.argv[1:] or ['base', 'diff']
 
 screen_src = open('tools/screen.py', encoding='utf-8').read()
