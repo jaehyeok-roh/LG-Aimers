@@ -17,7 +17,7 @@
 import base64, json, os, sys
 
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
-OUT = 'colab/aimers_ablation_colab.ipynb'
+OUT = os.environ.get('AB_OUT', 'colab/aimers_ablation_colab.ipynb')
 
 # 변형 정의: (AB_DROP_CAL, AB_DECAY, AB_REST, AB_PB)
 VAR = {
@@ -57,10 +57,10 @@ NEW = '''DROP_CAL = __import__("json").loads(__import__("os").environ.get("AB_DR
 COND_DECAY = float(__import__("os").environ.get("AB_DECAY", "1.0"))
 USE_REST_FOUL = __import__("os").environ.get("AB_REST", "0") == "1"
 USE_COND_PB = __import__("os").environ.get("AB_PB", "0") == "1"
-SEEDS = [42]'''
+SEEDS = __import__("json").loads(__import__("os").environ.get("AB_SEEDS", "[42]"))'''
 for j, l in enumerate(old_flags):
     script = script.replace(l, NEW if j == 0 else '', 1)
-for nm in ('AB_DROP_CAL', 'AB_DECAY', 'AB_REST', 'AB_PB'):
+for nm in ('AB_DROP_CAL', 'AB_DECAY', 'AB_REST', 'AB_PB', 'AB_SEEDS'):
     assert nm in script, nm
 # 드라이브 어디에 데이터를 뒀는지 모르므로 탐색 깊이를 넓힌다 (0단계 + 재귀 폴백 추가).
 PAT_FIX = [
@@ -109,12 +109,15 @@ compile(_src, "ablation.py", "exec")
 print(f"ablation.py {{len(_src):,}}자, 문법 OK")
 '''
 
+SEEDS_ENV = os.environ.get('AB_SEEDS', '[42]')   # 정식 구성은 AB_SEEDS='[42, 202, 2024]'
 runs = ',\n    '.join(
     f'("{t}", {{"AB_DROP_CAL": \'{VAR[t][0]}\', "AB_DECAY": "{VAR[t][1]}", '
-    f'"AB_REST": "{VAR[t][2]}", "AB_PB": "{VAR[t][3]}"}}),   # {DESC[t]}'
+    f'"AB_REST": "{VAR[t][2]}", "AB_PB": "{VAR[t][3]}", '
+    f'"AB_SEEDS": \'{SEEDS_ENV}\'}}),   # {DESC[t]}'
     for t in tags)
 
 DRIVE = '/content/drive/MyDrive/aimers_ablation'
+PFX = os.environ.get('AB_PFX', 's1')    # 산출물 이름 접두사. 정식 구성은 'v9' 등으로 구분
 RUN = f'''# --- 변형을 순서대로 실행. 하나 끝날 때마다 즉시 드라이브에 저장한다 ---
 # 세션이 중간에 끊겨도 그때까지 끝난 변형의 zip 은 드라이브에 남는다.
 import os, shutil, subprocess, sys, time
@@ -126,7 +129,7 @@ OUT = "{DRIVE}"
 os.makedirs(OUT, exist_ok=True)
 
 for tag, env in RUNS:
-    dst = f"{{OUT}}/submit_s1{{tag}}.zip"
+    dst = f"{{OUT}}/submit_{PFX}{{tag}}.zip"
     if os.path.exists(dst):
         print(f"[{{tag}}] 이미 있음 — 건너뜀", flush=True)
         continue
@@ -135,7 +138,7 @@ for tag, env in RUNS:
     e = dict(os.environ, **env)
     t0 = time.time()
     print(f"\\n{{'='*60}}\\n[{{tag}}] 시작  {{env}}\\n{{'='*60}}", flush=True)
-    log = f"{{OUT}}/log_s1{{tag}}.txt"
+    log = f"{{OUT}}/log_{PFX}{{tag}}.txt"
     with open(log, "w", encoding="utf-8") as lf:
         p = subprocess.Popen([sys.executable, "-u", "/content/ablation.py"],
                              cwd=wd, env=e, stdout=subprocess.PIPE,
