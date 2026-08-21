@@ -34,29 +34,31 @@ def _tree():
             print("   ", r, "->", sorted(d)[:6], sorted(f)[:6], flush=True)
 
 
-# ⚠️ 이 계정은 /kaggle/input/datasets/... 로 한 단계 더 깊이 마운트된다.
-# 깊이를 가정하지 말고 재귀로 찾는다 (2단계까지만 보다가 두 번 죽었다).
+# ⚠️ 두 가지를 가정하지 않는다:
+#  1) 이 계정은 /kaggle/input/datasets/<owner>/<slug>/ 로 한 단계 더 깊이 마운트된다.
+#  2) 캐글은 데이터셋에 올린 zip 을 **자동으로 풀어** 디렉터리로 준다 (submit_v9m/).
+# 그래서 script.py 의 위치로 제출본을 찾는다. 압축 파일이면 그것도 받는다.
 _c = glob.glob("/kaggle/input/**/train.csv", recursive=True)
-_z = glob.glob("/kaggle/input/**/submit_*.zip", recursive=True)
-if not _c or not _z:
+_s = glob.glob("/kaggle/input/**/submit_*/script.py", recursive=True)
+_zp = glob.glob("/kaggle/input/**/submit_*.zip", recursive=True)
+if not _c or not (_s or _zp):
     _tree()
-    raise SystemExit(f"못 찾음 — train.csv {{len(_c)}}개 / zip {{len(_z)}}개")
+    raise SystemExit(f"못 찾음 — train.csv {{len(_c)}}개 / 제출본 {{len(_s) + len(_zp)}}개")
 DATA = os.path.dirname(_c[0])
-DS_DIR = os.path.dirname(_z[0])
+found = {{}}
+for p in [os.path.dirname(x) for x in _s] + _zp:
+    found[os.path.splitext(os.path.basename(p.rstrip("/")))[0]] = p
 print("데이터 폴더:", DATA, flush=True)
-print("zip 폴더:", DS_DIR, sorted(os.listdir(DS_DIR)), flush=True)
+print("찾은 제출본:", sorted(found), flush=True)
 
-# 캐글 input 은 읽기 전용이라 zip 을 작업 폴더로 복사한다
-names = {NAMES!r}
 paths = []
-for n in names:
-    s = os.path.join(DS_DIR, n)
-    if not os.path.exists(s):
+for n in {NAMES!r}:
+    k = os.path.splitext(n)[0]
+    if k in found:
+        paths.append(found[k])
+    else:
         print("없음, 건너뜀:", n, flush=True)
-        continue
-    shutil.copy(s, n)
-    paths.append(n)
-print("대상 zip", paths, flush=True)
+print("대상", paths, flush=True)
 
 env = dict(os.environ, PC_DATA=DATA, PYTHONUTF8="1")
 p = subprocess.Popen([sys.executable, "-u", "pred_corr.py"] + paths + ["--rows={ROWS}"],

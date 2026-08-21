@@ -50,11 +50,15 @@ print(f'위장 test.csv {len(truth):,}행 준비\n', flush=True)
 # ---------- zip 별로 실행 ----------
 preds = {}
 for z in zips:
-    name = os.path.splitext(os.path.basename(z))[0]
+    name = os.path.splitext(os.path.basename(z.rstrip('/\\')))[0]
     w = os.path.join(root, name)
-    os.makedirs(w, exist_ok=True)
-    with zipfile.ZipFile(z) as f:
-        f.extractall(w)
+    if os.path.isdir(z):
+        # 캐글은 데이터셋에 올린 zip 을 **자동으로 풀어** 디렉터리로 마운트한다.
+        shutil.copytree(z, w)          # input 은 읽기 전용이라 복사해야 한다
+    else:
+        os.makedirs(w, exist_ok=True)
+        with zipfile.ZipFile(z) as f:
+            f.extractall(w)
     n_cbm = len([f for f in os.listdir(os.path.join(w, 'model')) if f.endswith('.cbm')])
     shutil.copytree(shared, os.path.join(w, 'data'))
     print(f'[{name}] 모델 {n_cbm}개 — 실행 중...', flush=True)
