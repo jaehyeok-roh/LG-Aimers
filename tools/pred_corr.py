@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 zips, ROWS, SEASON = [], 150000, 2024
+DATA = os.environ.get('PC_DATA', 'data')   # 캐글에서는 /kaggle/input/aimers
 for a in sys.argv[1:]:
     if a.startswith('--rows='):
         ROWS = int(a.split('=')[1])
@@ -33,7 +34,7 @@ root = tempfile.mkdtemp(prefix='predcorr_')
 print(f'작업 폴더 {root}\n시즌 {SEASON} / {ROWS:,}행 / zip {len(zips)}개\n', flush=True)
 
 # ---------- 위장 test.csv 를 한 번만 만든다 ----------
-tr = pd.read_csv('data/train.csv')
+tr = pd.read_csv(f'{DATA}/train.csv')
 sl = tr[tr['season'] == SEASON].head(ROWS).copy()
 truth = sl[['row_id', 'control_success']].rename(columns={'control_success': 'y'})
 shared = os.path.join(root, '_data')
@@ -41,8 +42,8 @@ os.makedirs(shared, exist_ok=True)
 sl.drop(columns=['control_success']).to_csv(f'{shared}/test.csv', index=False)
 pd.DataFrame({'row_id': sl['row_id'], 'control_success': 0.5}).to_csv(
     f'{shared}/sample_submission.csv', index=False)
-if os.path.exists('data/trackman_history.csv'):
-    shutil.copy('data/trackman_history.csv', f'{shared}/trackman_history.csv')
+if os.path.exists(f'{DATA}/trackman_history.csv'):
+    shutil.copy(f'{DATA}/trackman_history.csv', f'{shared}/trackman_history.csv')
 del tr, sl
 print(f'위장 test.csv {len(truth):,}행 준비\n', flush=True)
 
