@@ -357,6 +357,48 @@ def cand_wseason4(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
 
 
+def cand_nogt(ctx, **kw):
+    """`game_type` 제거.
+
+    전이 안정성 감사에서 순열 중요도가 **-554(2023) / -479(2024)** 로 압도적 최악이었다.
+    즉 모델이 이 피처를 쓰는 방식이 미래 시즌에서 크게 해롭다. 원인을 데이터에서 찾았다:
+
+      game_type=F (전체 10.9%) 성공률
+        2019 .6892  2020 .5878  2021 .7038  2022 .7087   <- 리그평균보다 훨씬 높음
+        2023 .4729  2024 .4593                            <- 한 시즌에 -0.236 폭락
+      game_type=R (89.1%)  2022 .5037 -> 2023 .5031       <- 거의 안 움직임
+
+    **드리프트가 아니라 체제 변화이고 부호가 뒤집혔다** (F 가 R 보다 +0.20 -> -0.03).
+    2019~2022 로 배운 "F 는 높다" 를 2025 에 적용하면 10.9% 의 행에서 크게 틀린다.
+    `season` 이 있으니 트리가 구분할 수는 있지만 2025 는 학습에 없는 값이라
+    부분적으로 섞일 위험이 있다. 월/요일 제거(+4.52 리더보드)와 같은 부류의 후보다.
+    """
+    drop = ['game_type']
+    Xh = ctx['Xh'].drop(columns=drop, errors='ignore')
+    Xv = ctx['Xv'].drop(columns=drop, errors='ignore')
+    cat = [c for c in ctx['cat'] if c not in drop]
+    p = dict(ctx['params'])
+    p['cat_features'] = cat
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, p, cat)
+
+
+def cand_dropoldF(ctx, **kw):
+    """체제 변화 **이전**의 F 행만 학습에서 뺀다 (game_type 은 유지).
+
+    `nogt` 는 피처를 통째로 버려서 새 체제의 F 신호(-0.03)까지 잃는다.
+    이건 낡은 규칙을 가르치는 행만 버리고 피처는 남긴다.
+    '데이터 양이 최신성을 이긴다'(-62/-128)와 다른 점: 오래된 행이라서 버리는 게
+    아니라 **라벨 관계가 깨진 것이 확인된** 행이라서 버린다.
+    """
+    gt = ctx['Xh']['game_type'].astype(str).to_numpy()
+    keep = ~((ctx['sh'] <= 2022) & (gt == 'F'))
+    print(f'    학습행 {len(keep):,} -> {keep.sum():,} '
+          f'(구체제 F {(~keep).sum():,}행 제거)', flush=True)
+    return cv_predict(ctx['Xh'][keep].reset_index(drop=True), ctx['yh'][keep],
+                      ctx['Xv'], ctx['params'], ctx['cat'])
+
+
 def _mono_map(cols, aggressive):
     """부호가 확실한 피처에만 단조 제약을 건다.
 
@@ -570,6 +612,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain,
          'wseason': cand_wseason, 'wseason1': cand_wseason1,
          'wseason5': cand_wseason5, 'wseason4': cand_wseason4,
+         'nogt': cand_nogt, 'dropoldF': cand_dropoldF,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 
