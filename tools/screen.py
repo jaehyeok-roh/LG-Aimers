@@ -1000,6 +1000,32 @@ def cand_ws5c10(ctx, **kw):
     return _add(ctx, _ws5_C(10.0))
 
 
+def cand_ws5nocond(ctx, **kw):
+    """★ wseason5 + `cond_*` 네 개 **제거**. claude.md 가 미검증으로 남긴 가설이다.
+
+    근거 둘이 같은 곳을 가리킨다:
+      1) 당해 시즌 복원이 들어간 뒤로 `cond_*` 는 거의 잉여일 수 있다.
+         eda11 이 네 번 독립적으로 '투수의 과거 이력은 당해 시즌 예측에 거의 쓸모없다'
+         고 쟀다 (eda7 -2 / eda9 -0 / group_oof B~C / eda11 -20).
+      2) `cond_*` 는 시즌 리그평균으로만 디트렌드하는데 2019~22 F 행은
+         +0.12~0.18 오차를 받는다. 디트렌드를 '고치는' 시도는 실패했지만
+         (ws5gt -17.8 / condgt -8.2 / bothgt -1.8) **빼는 것은 다른 개입**이다.
+    """
+    W = _wseason5_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    drop = [c for c in ctx['Xh'].columns if c.startswith('cond_')]
+    Xh = ctx['Xh'].drop(columns=drop).copy()
+    Xv = ctx['Xv'].drop(columns=drop).copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    cond_* {len(drop)}개 제거 {drop} | 피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}',
+          flush=True)
+    cat = [c for c in ctx['cat'] if c in Xh.columns]
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], cat)
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1264,6 +1290,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'tskill': cand_tskill,
          'ws5c10': cand_ws5c10, 'ws5c30': cand_ws5c30,
          'ws5c300': cand_ws5c300,
+         'ws5nocond': cand_ws5nocond,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
