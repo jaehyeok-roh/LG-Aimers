@@ -275,6 +275,88 @@ def cand_wseason1(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
 
 
+_WS5 = {}
+_RATES = ['success', 'middle', 'reverse', 'ball', 'strike']
+
+
+def _wseason5_cols():
+    """다섯 개 asof 비율 전부를 '당해 시즌' 으로 복원한다.
+
+    `wseason` 은 success_rate 하나만 했다. 나머지 넷(middle/reverse/ball/strike)도
+    **똑같이 커리어 누적**이라 같은 수준 오염을 겪는다.
+
+    ⚠️ 넷은 투구별 라벨이 없어서 control_success 처럼 라벨로 누적을 계산할 수 없다.
+       대신 **asof 컬럼 자체에서 읽는다**: 각 (투수, 시즌)의 **첫 행**은 그 시즌
+       시작 시점의 상태이므로 `asof_pitcher_n` 과 비율의 곱이 곧 직전 시즌까지의
+       누적 개수다. 라벨이 필요 없고 다섯 개에 똑같이 적용된다.
+
+       배포 시에는 train 의 2024 마지막 행에서 같은 값을 읽는다 (한 투구 오차).
+    """
+    if _WS5:
+        return _WS5
+    import glob
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+    cols = ['row_id', 'season', 'pitcher_id', 'asof_pitcher_n'] + \
+           [f'asof_pitcher_{k}_rate' for k in _RATES]
+    c = ([f for f in ('data/train.csv',) if os.path.exists(f)]
+         + glob.glob('/kaggle/input/**/train.csv', recursive=True))
+    tr = pd.read_csv(c[0], usecols=cols, keep_default_na=False, na_values=_na)
+    tr = tr.set_index('row_id').reindex(pd.Index(rid)).reset_index()
+
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')
+    # (투수, 시즌) 첫 행 = 그 시즌 시작 시점의 커리어 상태
+    first = tr.assign(_n=n).sort_values('_n').groupby(
+        ['pitcher_id', 'season'], sort=False).head(1)
+    key = pd.MultiIndex.from_arrays([tr['pitcher_id'], tr['season']])
+    fi = first.set_index(['pitcher_id', 'season'])
+    n0 = fi['_n'].reindex(key).to_numpy()
+    wn = np.maximum(n - n0, 0.0)
+    out = {'w5_n': wn, 'w5_share': wn / np.maximum(n, 1.0)}
+    for k in _RATES:
+        col = f'asof_pitcher_{k}_rate'
+        x = (tr[col].fillna(0).to_numpy(dtype='float64') * n).round()
+        x0 = (fi[col].fillna(0).reindex(key).to_numpy() * n0).round()
+        wx = np.clip(x - x0, 0.0, wn)
+        prior = float(np.nanmean(tr[col].to_numpy(dtype='float64')))
+        rate = (wx + prior * 100.0) / (wn + 100.0)
+        # 시즌 리그평균을 빼서 디트렌드 (cond_* 와 같은 처리)
+        lgk = tr.assign(_v=tr[col]).groupby('season')['_v'].mean()
+        out[f'w5_{k}'] = rate - tr['season'].map(lgk).to_numpy(dtype='float64')
+    _WS5.update(out)
+    print('    당해시즌 5종 복원: 투구수 중앙값 %.0f | ' % np.median(wn)
+          + ' '.join(f'{k}={np.nanmean(out["w5_"+k]):+.4f}' for k in _RATES), flush=True)
+    return _WS5
+
+
+def cand_wseason5(ctx, **kw):
+    """다섯 비율 전부 + 표본크기 = 7개 추가."""
+    W = _wseason5_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_wseason4(ctx, **kw):
+    """success 를 뺀 나머지 넷만. wseason(성공률)과 겹치지 않는 증분을 가른다."""
+    W = _wseason5_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        if k == 'w5_success':
+            continue
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def _mono_map(cols, aggressive):
     """부호가 확실한 피처에만 단조 제약을 건다.
 
@@ -487,6 +569,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'blend_recent': cand_blend_recent,
          'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain,
          'wseason': cand_wseason, 'wseason1': cand_wseason1,
+         'wseason5': cand_wseason5, 'wseason4': cand_wseason4,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 
