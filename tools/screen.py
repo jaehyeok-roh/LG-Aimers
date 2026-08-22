@@ -827,6 +827,119 @@ def cand_wsbat(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _wsbat_cols())
 
 
+_TSK = {}
+
+
+def _tskill_cols():
+    """★ 구종별 제구 실력 x 상황별 구종 성향 — 1:1 정렬을 처음으로 실제로 쓴다.
+
+    eda14/eda26: **그 투구의 구종을 알면 +428~478.** 추론 시점엔 못 쓴다.
+    `pmix`(구종 **성향**만) 는 0 이었다 — 성향은 투수 수준 상수라 이미 base 에 있다.
+
+    **빠져 있던 조각은 성향이 아니라 '구종별 실력' 이다.**
+    슬라이더는 흔들리는데 직구는 정확한 투수가 있다. 그 정보는 어디에도 없다 —
+    투구별 구종 라벨이 필요한데, 그것을 **1:1 정렬(cache/raw/aligned.parquet)** 이 준다.
+
+        tskill[투수, 구종] = 그 투수의 그 구종 제구 편차   (과거 시즌만, 0 으로 shrink)
+        mix[구종 | 투수, 카운트, 손]                      (트랙맨, 과거 시즌만)
+        exp = Σ mix x tskill                              <- 상황별 기대 제구
+        adj = exp − (투수 전체 믹스로 잰 exp)              <- ★ 상황 조정분
+
+    `adj` 가 핵심이다. 카운트가 믹스를 바꾸고 구종마다 실력이 다르므로
+    **트리가 만들 수 없는 상호작용**이다 (구종별 결과 데이터를 아예 못 본다).
+    """
+    if _TSK:
+        return _TSK
+    import glob
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+
+    def _find(name, sub='data/'):
+        c = ([f'{sub}{name}'] if os.path.exists(f'{sub}{name}') else []) +             glob.glob(f'/kaggle/input/**/{name}', recursive=True)
+        if not c:
+            raise SystemExit(f'{name} 을 못 찾음')
+        return c[0]
+
+    C_SK, C_MIX = 60.0, 30.0
+    d = _read_tr(['season', 'game_type', 'pitcher_id', 'batter_hand',
+                  'balls_before', 'strikes_before'])
+    d['ct'] = _count_adv(d['balls_before'], d['strikes_before'])
+    d['bh'] = d['batter_hand'].map({1: 'Left', 2: 'Right'}).fillna(
+        d['batter_hand'].astype(str))
+
+    # ---- (1) 구종별 실력: 정렬된 투구에서만 얻을 수 있다
+    ap = _find('aligned.parquet', 'cache/raw/')
+    a = pd.read_parquet(ap, columns=['season', 'game_type', 'pitcher_id',
+                                     'pitch_type_group', 'control_success'])
+    a['pg'] = a['pitch_type_group'].astype(str).str.lower()
+    T = ['fastball', 'breaking', 'offspeed']
+    a = a[a['pg'].isin(T)].copy()
+    a['dev'] = a['control_success'] - a.groupby(
+        ['season', 'game_type'])['control_success'].transform('mean')
+
+    # ---- (2) 상황별 구종 믹스: 트랙맨 전체 (정렬 안 된 것도 쓴다)
+    tm = pd.read_csv(_find('trackman_history.csv'),
+                     usecols=['season', 'balls_before', 'strikes_before',
+                              'batter_hand', 'pitcher_trackman_id', 'pitch_type_group'],
+                     keep_default_na=False, na_values=_na)
+    mp = pd.read_csv(_find('pitcher_id_mapping_v2.csv'),
+                     keep_default_na=False, na_values=_na)
+    tm = tm.merge(mp[['season', 'pitcher_trackman_id', 'pitcher_id']].dropna()
+                  .drop_duplicates(), on=['season', 'pitcher_trackman_id'], how='inner')
+    tm['ct'] = _count_adv(tm['balls_before'], tm['strikes_before'])
+    tm['pg'] = tm['pitch_type_group'].astype(str).str.lower()
+    tm = tm[tm['pg'].isin(T)]
+
+    n = len(d)
+    exp = np.full(n, np.nan)
+    exp0 = np.full(n, np.nan)
+    spread = np.full(n, np.nan)
+    have = np.zeros(n)
+    for s in sorted(d['season'].unique()):
+        m = (d['season'] == s).to_numpy()
+        sub = d[m]
+        pa, pt = a[a['season'] < s], tm[tm['season'] < s]
+        if not len(pa) or not len(pt):
+            continue
+        # 구종별 실력 (투수 x 구종)
+        g = pa.groupby(['pitcher_id', 'pg'])['dev'].agg(['sum', 'size'])
+        sk = (g['sum'] / (g['size'] + C_SK)).unstack().reindex(columns=T)
+        # 믹스: 투수 전체 / 투수 x 카운트 x 손
+        def _mix(keys, dcols):
+            gg = pt.groupby(keys + ['pg']).size().unstack(fill_value=0).reindex(
+                columns=T, fill_value=0)
+            allm = pt.groupby(['pitcher_id', 'pg']).size().unstack(
+                fill_value=0).reindex(columns=T, fill_value=0)
+            allm = allm.div(allm.sum(1).clip(lower=1), axis=0)
+            base = (allm if keys == ['pitcher_id']
+                    else allm.reindex(gg.index.get_level_values('pitcher_id')).to_numpy())
+            nn = gg.sum(1).to_numpy()[:, None]
+            tab = pd.DataFrame((gg.to_numpy() + np.asarray(base) * C_MIX) / (nn + C_MIX),
+                               index=gg.index, columns=T)
+            idx = (pd.Index(sub[dcols[0]]) if len(dcols) == 1
+                   else pd.MultiIndex.from_arrays([sub[c] for c in dcols]))
+            return tab.reindex(idx).to_numpy('float64')
+        M1 = _mix(['pitcher_id'], ['pitcher_id'])
+        M3 = _mix(['pitcher_id', 'ct', 'batter_hand'], ['pitcher_id', 'ct', 'bh'])
+        SK = sk.reindex(pd.Index(sub['pitcher_id'])).to_numpy('float64')
+        ok = np.isfinite(SK).all(1) & np.isfinite(M1).all(1) & np.isfinite(M3).all(1)
+        e3, e1 = (M3 * SK).sum(1), (M1 * SK).sum(1)
+        exp[m] = np.where(ok, e3, np.nan)
+        exp0[m] = np.where(ok, e1, np.nan)
+        spread[m] = np.where(ok, np.nanstd(SK, axis=1), np.nan)
+        have[m] = ok.astype(float)
+    _TSK.update({'tsk_exp': exp, 'tsk_adj': exp - exp0,
+                 'tsk_spread': spread, 'tsk_have': have})
+    print(f'    구종별 실력 x 상황믹스 | 커버리지 {have.mean():.1%} | '
+          f'adj std {np.nanstd(exp - exp0):.5f} | spread 중앙 {np.nanmedian(spread):.4f}',
+          flush=True)
+    return _TSK
+
+
+def cand_tskill(ctx, **kw):
+    """★ wseason5 + 구종별 실력 x 상황 믹스. 비교 기준은 wseason5 885.6."""
+    return _add(ctx, _wseason5_cols(), _tskill_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1088,6 +1201,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'xprob': cand_xprob, 'wsxprob': cand_wsxprob,
          'ws5gt': cand_ws5gt, 'condgt': cand_condgt,
          'wsbat': cand_wsbat,
+         'tskill': cand_tskill,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
