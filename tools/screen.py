@@ -643,6 +643,140 @@ def cand_wsxprob(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _xprob_cols())
 
 
+def _read_tr(cols):
+    """row_id 순서를 캐시와 맞춰 train.csv 의 일부 컬럼을 읽는다."""
+    import glob
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    c = ([f for f in ('data/train.csv',) if os.path.exists(f)]
+         + glob.glob('/kaggle/input/**/train.csv', recursive=True))
+    tr = pd.read_csv(c[0], usecols=['row_id'] + list(cols),
+                     keep_default_na=False, na_values=_na)
+    tr = tr.set_index('row_id').reindex(pd.Index(rid)).reset_index()
+    assert tr[cols[0]].notna().all(), 'row_id 매칭 실패'
+    return tr
+
+
+def _count_adv(b, s):
+    """step4 / step15 와 같은 정의."""
+    pa = ((b == 0) & (s == 1)) | ((b == 0) & (s == 2)) | ((b == 1) & (s == 2))
+    ba = (((b == 1) & (s == 0)) | ((b == 2) & (s == 0)) | ((b == 3) & (s == 0))
+          | ((b == 2) & (s == 1)) | ((b == 3) & (s == 1)))
+    nu = ((b == 1) & (s == 1)) | ((b == 2) & (s == 2))
+    return np.select([pa, ba, nu], ['Pitcher', 'Batter', 'Neutral'], default='None')
+
+
+_WS5GT = {}
+
+
+def _ws5gt_cols():
+    """wseason5 와 같되 디트렌드를 **(시즌 x game_type)** 으로 한다.
+
+    근거: game_type=F 는 퓨처스(2군)이고 2023 에 라벨 체제가 바뀌었다.
+      F 성공률  2019 .689  2020 .588  2021 .704  2022 .709 | 2023 .473  2024 .459
+      R 성공률       .550       .527       .513       .504 |      .503       .490
+    2022->2023 낙폭이 전체로는 -0.0290 인데 **R 만 보면 -0.0006** 이다.
+    즉 우리가 '리그 드리프트' 로 알고 있던 최대 낙폭이 거의 전부 F 체제 변경이었다.
+
+    그런데 디트렌드는 '그 시즌 리그평균' 하나만 빼므로, 2019~22 의 F 행은
+    **+0.12 ~ +0.18 의 오차**를 받는다. 그 오염이 방금 +61.72 를 벌어준
+    피처 안에 들어 있다.
+    """
+    if _WS5GT:
+        return _WS5GT
+    W = dict(_wseason5_cols())            # 복원값은 그대로 쓰고 디트렌드만 갈아끼운다
+    tr = _read_tr(['season', 'game_type'] + [f'asof_pitcher_{k}_rate' for k in _RATES])
+    for k in _RATES:
+        col = f'asof_pitcher_{k}_rate'
+        # 기존: season 평균을 뺐다 -> 되돌린 뒤 (season x game_type) 평균을 뺀다
+        old = tr.groupby('season')[col].transform('mean').to_numpy('float64')
+        new = tr.groupby(['season', 'game_type'])[col].transform('mean').to_numpy('float64')
+        W[f'w5_{k}'] = W[f'w5_{k}'] + old - new
+    _WS5GT.update(W)
+    d = np.abs(_WS5GT['w5_success'] - _WS5_RAW_SUCCESS) if _WS5_RAW_SUCCESS is not None else None
+    print('    디트렌드 (시즌 x game_type) 로 교체'
+          + ('' if d is None else f' | success 이동 평균 {d.mean():.4f} 최대 {d.max():.4f}'),
+          flush=True)
+    return _WS5GT
+
+
+_WS5_RAW_SUCCESS = None
+_CONDGT = {}
+_CONDC = {'cond_p': 200.0, 'cond_pc': 100.0, 'cond_ph': 100.0, 'cond_phc': 50.0}
+
+
+def _condgt_cols():
+    """cond_* 네 개를 **(시즌 x game_type)** 디트렌드로 다시 만든다.
+
+    현행과 같은 구조: 시즌 편차를 sum/(count+C) 로 0 에 shrink, 각 행은
+    **자기 시즌보다 과거** 시즌만으로 인코딩(leak-free). 바뀌는 것은 디트렌드 기준뿐.
+    2024 홀드아웃 투수 편차와의 상관: 현행 +0.260 -> 제안 +0.477 (가중 +0.420 -> +0.624).
+    """
+    if _CONDGT:
+        return _CONDGT
+    tr = _read_tr(['season', 'game_type', 'pitcher_id', 'batter_hand',
+                   'balls_before', 'strikes_before', 'control_success'])
+    tr['ca'] = _count_adv(tr['balls_before'], tr['strikes_before'])
+    lg = tr.groupby(['season', 'game_type'])['control_success'].transform('mean')
+    tr['dev'] = tr['control_success'] - lg
+
+    SPEC = {'cond_p': ['pitcher_id'],
+            'cond_pc': ['pitcher_id', 'ca'],
+            'cond_ph': ['pitcher_id', 'batter_hand'],
+            'cond_phc': ['pitcher_id', 'batter_hand', 'ca']}
+    for name, keys in SPEC.items():
+        g = tr.groupby(keys + ['season'])['dev'].agg(['sum', 'size']).sort_index()
+        # 자기 시즌 **이전까지**의 누적 (leak-free)
+        cum = g.groupby(level=list(range(len(keys)))).cumsum()
+        cum = cum.groupby(level=list(range(len(keys)))).shift(1)
+        C = _CONDC[name]
+        val = cum['sum'] / (cum['size'] + C)
+        idx = pd.MultiIndex.from_arrays([tr[k] for k in keys] + [tr['season']])
+        _CONDGT[name] = val.reindex(idx).to_numpy(dtype='float64')
+    miss = np.isnan(_CONDGT['cond_p']).mean()
+    print(f'    cond_* 4개 재생성 (시즌 x game_type 디트렌드) | cond_p 결측 {miss:.1%}',
+          flush=True)
+    return _CONDGT
+
+
+def cand_ws5gt(ctx, **kw):
+    """★ wseason5 의 디트렌드를 (시즌 x game_type) 으로. 비교 기준은 wseason5 885.6."""
+    return _add(ctx, _ws5gt_cols())
+
+
+def cand_condgt(ctx, **kw):
+    """★ wseason5(현행 디트렌드) + cond_* 를 (시즌 x game_type) 으로 재생성."""
+    W = _wseason5_cols()
+    G = _condgt_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():                      # 새 컬럼 추가
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    for k, v in G.items():                      # 기존 cond_* 를 **덮어쓴다**
+        assert k in Xh.columns, f'{k} 가 캐시에 없다'
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]} (cond_* 4개 덮어씀)', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_bothgt(ctx, **kw):
+    """★ 둘 다 — wseason5 도 cond_* 도 (시즌 x game_type) 디트렌드."""
+    W = _ws5gt_cols()
+    G = _condgt_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W_ in (W, G):
+        for k, v in W_.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -902,6 +1036,8 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'nogt': cand_nogt, 'dropoldF': cand_dropoldF,
          'pmix': cand_pmix, 'wspmix': cand_wspmix,
          'xprob': cand_xprob, 'wsxprob': cand_wsxprob,
+         'ws5gt': cand_ws5gt, 'condgt': cand_condgt,
+         'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 
