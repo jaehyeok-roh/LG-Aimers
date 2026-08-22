@@ -44,6 +44,11 @@ _bp.pop("bagging_temperature", None)   # Bayesian 전용 — MVS 에서는 무�
 json.dump({"cat_features": list(cat_features), "best_params": _bp,
            "n_rows": int(len(X_full)), "n_feats": int(X_full.shape[1])},
           open(f"{CDIR}/meta.json", "w"), indent=2, ensure_ascii=False)
+# 재구축한 투수 매핑을 파일로 떨군다 — 캐글 데이터셋엔 없고
+# 노트북이 메모리에서 만들기 때문에 screen.py 가 못 찾는다.
+os.makedirs("data", exist_ok=True)
+pitcher_id_mapping.to_csv("data/pitcher_id_mapping_v2.csv", index=False)
+print("매핑 덤프", len(pitcher_id_mapping), flush=True)
 print("캐시 저장 완료", X_full.shape, flush=True)
 '''
 
