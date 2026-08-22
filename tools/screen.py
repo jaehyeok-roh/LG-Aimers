@@ -526,6 +526,123 @@ def cand_wspmix(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
 
 
+_XPROB = {}
+
+
+def _xprob_cols():
+    """★ step16 이 계산해놓고 **버리는** 세 확률을 그대로 내보낸다.
+
+    step16_calc_expected_difficulty 안에는 이미
+        exp_fb_prob / exp_br_prob / exp_off_prob = P(구종 | 투수, count_advantage)
+    가 있는데, return 문이 이것들을 `expected_control_difficulty`
+    (= 성향 x 릴리스포인트 std) 라는 **스칼라 하나**로 뭉갠 뒤 버린다.
+    모델이 보는 것은 그 곱 하나뿐이다.
+
+    여기서는 step16 과 **글자 그대로 같은 계산**(월 단위 expanding, 현재 월 제외)에
+    merge_asof 도 파이프라인과 같은 방식으로 붙인다. 즉 '그냥 같이 내보내면 얼마인가'.
+
+    `pmix` 와의 차이 — 이쪽이 싸고 저쪽이 촘촘하다:
+      xprob: 카운트 4단계(count_advantage), 손 축 없음, 월 단위(더 신선)
+      pmix : 카운트 12칸, x 타자 손, shrink 있음, 시즌 단위
+    """
+    global _XPROB
+    if _XPROB:
+        return _XPROB
+    import glob
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+
+    def _find(name):
+        c = ([f'data/{name}'] if os.path.exists(f'data/{name}') else []) +             glob.glob(f'/kaggle/input/**/{name}', recursive=True)
+        if not c:
+            raise SystemExit(f'{name} 을 못 찾음')
+        return c[0]
+
+    def _ca(b, s):                       # step4 / step15 와 같은 정의
+        pa = ((b == 0) & (s == 1)) | ((b == 0) & (s == 2)) | ((b == 1) & (s == 2))
+        ba = (((b == 1) & (s == 0)) | ((b == 2) & (s == 0)) | ((b == 3) & (s == 0))
+              | ((b == 2) & (s == 1)) | ((b == 3) & (s == 1)))
+        nu = ((b == 1) & (s == 1)) | ((b == 2) & (s == 2))
+        return np.select([pa, ba, nu], ['Pitcher', 'Batter', 'Neutral'], default='None')
+
+    G = ['fastball', 'breaking', 'offspeed']
+    EX = [f'xp_{c}' for c in G]
+
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    tr = pd.read_csv(_find('train.csv'),
+                     usecols=['row_id', 'season', 'game_month', 'pitcher_id',
+                              'balls_before', 'strikes_before'],
+                     keep_default_na=False, na_values=_na)
+    tr = tr.set_index('row_id').reindex(pd.Index(rid)).reset_index()
+    assert tr['pitcher_id'].notna().all(), 'row_id 매칭 실패'
+    tr['pitcher_id'] = tr['pitcher_id'].astype('int64')
+    tr['count_advantage'] = _ca(tr['balls_before'], tr['strikes_before'])
+    tr['time_idx'] = tr['season'] * 100 + tr['game_month']
+    tr['__orig'] = np.arange(len(tr))
+
+    tm = pd.read_csv(_find('trackman_history.csv'),
+                     usecols=['season', 'game_month', 'balls_before', 'strikes_before',
+                              'pitcher_trackman_id', 'pitch_type_group'],
+                     keep_default_na=False, na_values=_na)
+    mp = pd.read_csv(_find('pitcher_id_mapping_v2.csv'),
+                     keep_default_na=False, na_values=_na)
+    tm = tm.merge(mp[['season', 'pitcher_trackman_id', 'pitcher_id']].dropna()
+                  .drop_duplicates(), on=['season', 'pitcher_trackman_id'], how='inner')
+    tm['pitcher_id'] = tm['pitcher_id'].astype('int64')
+    tm['count_advantage'] = _ca(tm['balls_before'], tm['strikes_before'])
+    tm['pitch_group'] = tm['pitch_type_group'].astype(str).str.lower()
+    tm = tm[tm['pitch_group'].isin(G)]
+
+    # ---- step16 과 동일: (투수 x count_advantage) 안 월 단위 누적, 현재 월 제외
+    sit = tm.groupby(['season', 'game_month', 'pitcher_id', 'count_advantage',
+                      'pitch_group']).size().unstack(fill_value=0).reset_index()
+    for c in G:
+        if c not in sit.columns:
+            sit[c] = 0
+    sit = sit.sort_values(by=['pitcher_id', 'count_advantage', 'season', 'game_month'])
+    g = sit.groupby(['pitcher_id', 'count_advantage'])
+    past = {c: (g[c].cumsum() - sit[c]).to_numpy() for c in G}
+    tot = past[G[0]] + past[G[1]] + past[G[2]]
+    for c in G:
+        sit[f'xp_{c}'] = np.where(tot > 0, past[c] / np.maximum(tot, 1), 0.0)
+    sit['time_idx'] = sit['season'] * 100 + sit['game_month']
+
+    m = pd.merge_asof(
+        tr.sort_values('time_idx'),
+        sit[['time_idx', 'pitcher_id', 'count_advantage'] + EX].sort_values('time_idx'),
+        on='time_idx', by=['pitcher_id', 'count_advantage'], direction='backward')
+    m = m.sort_values('__orig')
+    out = {k: m[k].to_numpy(dtype='float64') for k in EX}
+    _XPROB.update(out)
+    cov = np.isfinite(out[EX[0]]).mean()
+    nz = (np.nan_to_num(out[EX[0]]) + np.nan_to_num(out[EX[1]])
+          + np.nan_to_num(out[EX[2]]) > 0).mean()
+    print(f'    step16 성향 {len(EX)}개 | 셀 {len(sit):,} | '
+          f'merge 성공 {cov:.1%} | 과거표본 있음 {nz:.1%}', flush=True)
+    return _XPROB
+
+
+def _add(ctx, *tables):
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in tables:
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_xprob(ctx, **kw):
+    """★ step16 이 버리는 세 확률을 '그냥 같이 내보내면' 얼마인가."""
+    return _add(ctx, _xprob_cols())
+
+
+def cand_wsxprob(ctx, **kw):
+    """당해 시즌 복원 + step16 성향 — 배포 비용이 가장 싼 조합."""
+    return _add(ctx, _wseason5_cols(), _xprob_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -784,6 +901,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'wseason5b': cand_wseason5b,
          'nogt': cand_nogt, 'dropoldF': cand_dropoldF,
          'pmix': cand_pmix, 'wspmix': cand_wspmix,
+         'xprob': cand_xprob, 'wsxprob': cand_wsxprob,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 
