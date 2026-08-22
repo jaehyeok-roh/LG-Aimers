@@ -185,6 +185,96 @@ def cand_onehot(ctx, **kw):
     return _p(ctx, one_hot_max_size=16)
 
 
+_WS = {}
+
+
+def _wseason_cols():
+    """당해 시즌 성적을 복원한다 (EDA 2026-08-22).
+
+    `asof_pitcher_success_rate` 는 **커리어 누적**이라 투수마다 의미가 다르다.
+    이력 있는 투수에게는 2019(리그 .5647)부터 섞인 값이고 신규 투수에게는 순수한
+    당해 시즌 값이다. 2024 에서 단독 예측 스킬이 141 vs 906 으로 갈린다.
+
+    복원:
+      커리어 성공수 = asof_pitcher_success_rate x asof_pitcher_n   (그 행이 갖고 있다)
+      직전 시즌까지 = 투수별 룩업 (학습 데이터로 만든다)              (test 행 통계 아님 = 합법)
+      차이 -> 당해 시즌 투구수 / 성공수
+
+    검증 완료 (train 2024): 성공수 정수 오차 0.008, 음수 0%, 범위 밖 0.0000%.
+    test 5행에서도 asof_pitcher_n >= 그 투수의 train 총투구가 전부 성립.
+
+    ⚠️ 최근성 가중 4연패(-33/-118, -62/-128, -5~-27, -7.95)와 다른 점:
+       그것들은 전부 정보를 **빼거나 대체**했다. 이건 커리어 값을 그대로 두고
+       컬럼을 **더한다**. 그리고 학습·추론 양쪽에서 똑같이 신선하다
+       (주최측 asof 가 test 에서도 시즌 내 누적이므로) — `asof_*` fresh 설계가
+       -217 로 무너진 것과 정반대 조건이다.
+
+    ⚠️ 트리가 스스로 만들 수 없다. '그 투수의 직전 시즌까지 누적' 은 어떤 컬럼에도
+       없고 다른 행에서 끌어와야 한다. 이득이 났던 cond_*(+27)/트랙맨(+9)과 같은 부류.
+    """
+    if _WS:
+        return _WS
+    import glob
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+    c = ([f for f in ('data/train.csv',) if os.path.exists(f)]
+         + glob.glob('/kaggle/input/**/train.csv', recursive=True))
+    tr = pd.read_csv(c[0], usecols=['row_id', 'season', 'pitcher_id', 'control_success',
+                                    'asof_pitcher_n', 'asof_pitcher_success_rate'],
+                     keep_default_na=False, na_values=_na)
+    tr = tr.set_index('row_id').reindex(pd.Index(rid)).reset_index()
+    assert tr['pitcher_id'].notna().all(), 'row_id 매칭 실패'
+
+    # 시즌별 누적 룩업: (투수, 시즌) -> 그 시즌 **이전까지**의 투구수/성공수
+    g = tr.groupby(['pitcher_id', 'season'])['control_success'].agg(['size', 'sum'])
+    g = g.sort_index()
+    cum = g.groupby(level=0).cumsum().groupby(level=0).shift(1).fillna(0)
+    key = pd.MultiIndex.from_arrays([tr['pitcher_id'], tr['season']])
+    pn = cum['size'].reindex(key).to_numpy()
+    ps = cum['sum'].reindex(key).to_numpy()
+
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')
+    s = (tr['asof_pitcher_success_rate'].fillna(0).to_numpy(dtype='float64') * n).round()
+    wn = np.maximum(n - pn, 0.0)
+    ws = np.clip(s - ps, 0.0, wn)
+    lg = tr.groupby('season')['control_success'].mean()
+    lgv = tr['season'].map(lg).to_numpy(dtype='float64')
+    prior = float(tr['control_success'].mean())
+
+    C = 100.0
+    rate = (ws + prior * C) / (wn + C)
+    _WS.update(w_n=wn, w_rate=rate, w_dev=rate - lgv,
+               w_share=wn / np.maximum(n, 1.0))
+    print(f'    당해시즌 복원: 투구수 중앙값 {np.median(wn):.0f} | '
+          f'성공률 평균 {rate.mean():.4f} | 커리어대비 비중 {_WS["w_share"].mean():.2f}',
+          flush=True)
+    return _WS
+
+
+def cand_wseason(ctx, **kw):
+    """당해 시즌 성적 4개를 추가한다."""
+    W = _wseason_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_wseason1(ctx, **kw):
+    """성공률 하나만 (최소판). 넷 중 무엇이 일하는지 가른다."""
+    W = _wseason_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    Xh['w_dev'] = W['w_dev'][mh].astype(np.float32)
+    Xv['w_dev'] = W['w_dev'][mv].astype(np.float32)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def _mono_map(cols, aggressive):
     """부호가 확실한 피처에만 단조 제약을 건다.
 
@@ -396,6 +486,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'lrbase': cand_lrbase, 'lrbase2': cand_lrbase2,
          'blend_recent': cand_blend_recent,
          'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain,
+         'wseason': cand_wseason, 'wseason1': cand_wseason1,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 

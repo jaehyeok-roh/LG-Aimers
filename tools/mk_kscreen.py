@@ -17,9 +17,10 @@ import ast, base64, json, os, sys
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
 STOP = 'BEST_PARAMS = _found'
 TAG = os.environ.get('KS_TAG', 'kscreen')   # 커널을 동시에 여러 개 띄우려면 바꾼다
+SCRIPT = os.environ.get('KS_SCRIPT', 'tools/screen.py')   # 다른 도구도 같은 커널로 돌린다
 CANDS = sys.argv[1:] or ['base', 'diff']
 
-screen_src = open('tools/screen.py', encoding='utf-8').read()
+screen_src = open(SCRIPT, encoding='utf-8').read()
 compile(screen_src, 'screen.py', 'exec')
 b64 = base64.b64encode(screen_src.encode('utf-8')).decode('ascii')
 b64 = '\n'.join(b64[i:i + 100] for i in range(0, len(b64), 100))
