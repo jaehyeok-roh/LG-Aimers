@@ -10,7 +10,10 @@ for k in cpua cpub cpuc kgt1 kgt2 ktsk k23 kbat; do
   s=$(PYTHONUTF8=1 kaggle kernels status homekeggle/aimers-$k 2>/dev/null \
       | tr -d '\r' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2)
   printf '  %-6s %s\n' "$k" "${s:-없음}"
-  if [ "$s" = "COMPLETE" ] && [ ! -d "kaggle_output/$k" ]; then
+  # 디렉터리 존재만 보면 안 된다 — 종료로 중단된 부분 다운로드가 남아 있을 수 있다.
+  # 로그 파일이 실제로 있는지로 판정한다.
+  if [ "$s" = "COMPLETE" ] && [ ! -f "kaggle_output/$k/aimers-$k.log" ]; then
+    rm -rf "kaggle_output/$k"
     mkdir -p "kaggle_output/$k"
     PYTHONUTF8=1 kaggle kernels output "homekeggle/aimers-$k" -p "kaggle_output/$k" >/dev/null 2>&1
     echo "         ↳ 받음"
