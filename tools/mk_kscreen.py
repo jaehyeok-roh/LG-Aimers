@@ -28,18 +28,22 @@ b64 = '\n'.join(b64[i:i + 100] for i in range(0, len(b64), 100))
 SAVE = '''# ===== 캐시 저장 (tools/make_cache.py 와 같은 레이아웃) =====
 import os
 import numpy as np
+# 큰 캐시는 /tmp 에 둔다 — /kaggle/working 에 두면 커널 출력에 통째로
+# 실려서 결과 회수가 수 분씩 걸린다 (835MB).
+CDIR = "/tmp/cache" if os.path.isdir("/kaggle") else "cache"
+os.makedirs(CDIR, exist_ok=True)
 os.makedirs("cache", exist_ok=True)
 _season = df_processed["season"].to_numpy()
-X_full.to_pickle("cache/X.pkl")
-np.save("cache/y.npy", y_full.to_numpy())
-np.save("cache/season.npy", _season)
-np.save("cache/row_id.npy", df_processed["row_id"].to_numpy())
+X_full.to_pickle(f"{CDIR}/X.pkl")
+np.save(f"{CDIR}/y.npy", y_full.to_numpy())
+np.save(f"{CDIR}/season.npy", _season)
+np.save(f"{CDIR}/row_id.npy", df_processed["row_id"].to_numpy())
 _bp = {k: v for k, v in BEST_PARAMS.items() if k != "cat_features"}
 _bp["task_type"] = "CPU"          # 캐글 CPU 커널이다
 _bp.pop("bagging_temperature", None)   # Bayesian 전용 — MVS 에서는 무시된다
 json.dump({"cat_features": list(cat_features), "best_params": _bp,
            "n_rows": int(len(X_full)), "n_feats": int(X_full.shape[1])},
-          open("cache/meta.json", "w"), indent=2, ensure_ascii=False)
+          open(f"{CDIR}/meta.json", "w"), indent=2, ensure_ascii=False)
 print("캐시 저장 완료", X_full.shape, flush=True)
 '''
 
@@ -51,9 +55,10 @@ pathlib.Path("screen.py").write_text(
 print("screen.py 풀기 완료", flush=True)
 
 CANDS = {CANDS!r}
+_env = dict(os.environ, SCREEN_CACHE=("/tmp/cache" if os.path.isdir("/kaggle") else "cache"))
 p = subprocess.Popen([sys.executable, "-u", "screen.py"] + CANDS,
                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                     text=True, encoding="utf-8", errors="replace")
+                     text=True, encoding="utf-8", errors="replace", env=_env)
 for line in p.stdout:
     print(line.rstrip(), flush=True)
 rc = p.wait()
