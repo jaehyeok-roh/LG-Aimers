@@ -16,6 +16,7 @@ import ast, base64, json, os, sys
 
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
 STOP = 'BEST_PARAMS = _found'
+EXTRA_ENV = json.loads(os.environ.get('KS_ENV', '{}'))  # 커널 안으로 넘길 환경변수
 TAG = os.environ.get('KS_TAG', 'kscreen')   # 커널을 동시에 여러 개 띄우려면 바꾼다
 SCRIPT = os.environ.get('KS_SCRIPT', 'tools/screen.py')   # 다른 도구도 같은 커널로 돌린다
 CANDS = sys.argv[1:] or ['base', 'diff']
@@ -26,6 +27,7 @@ b64 = base64.b64encode(screen_src.encode('utf-8')).decode('ascii')
 b64 = '\n'.join(b64[i:i + 100] for i in range(0, len(b64), 100))
 
 SAVE = '''# ===== 캐시 저장 (tools/make_cache.py 와 같은 레이아웃) =====
+import json
 import os
 import numpy as np
 # 큰 캐시는 /tmp 에 둔다 — /kaggle/working 에 두면 커널 출력에 통째로
@@ -61,6 +63,8 @@ print("screen.py 풀기 완료", flush=True)
 
 CANDS = {CANDS!r}
 _env = dict(os.environ, SCREEN_CACHE=("/tmp/cache" if os.path.isdir("/kaggle") else "cache"))
+_env.update({EXTRA_ENV!r})
+print("추가 환경변수", {EXTRA_ENV!r}, flush=True)
 p = subprocess.Popen([sys.executable, "-u", "screen.py"] + CANDS,
                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                      text=True, encoding="utf-8", errors="replace", env=_env)

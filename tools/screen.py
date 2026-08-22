@@ -23,7 +23,11 @@ from sklearn.model_selection import StratifiedKFold
 
 CACHE = os.environ.get('SCREEN_CACHE', 'cache')
 RESULTS = 'cache/screen_results.json'
-HOLDOUT = 2024
+HOLDOUT = int(os.environ.get('SCREEN_HOLDOUT', '2024'))
+# 2023 을 쓸 때는 F(퓨처스) 행을 채점에서 뺀다 — 2023 에 라벨 체제가 바뀌어
+# 2019~22 로 학습한 모델이 F 를 .68 로 보는데 실제는 .473 이다 (산술로 -1,800점).
+# R 만 보면 2022->2023 낙폭이 -0.0006 이라 정상적인 검증 시즌이 된다.
+DROP_F = os.environ.get('SCREEN_DROP_F', '1') == '1' and HOLDOUT == 2023
 FOLDS = 3
 
 
@@ -777,6 +781,52 @@ def cand_bothgt(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
 
 
+_WSBAT = {}
+_BRATES = ['success', 'middle']
+
+
+def _wsbat_cols():
+    """타자측 두 비율을 '당해 시즌' 으로 복원한다 — `wseason5` 와 같은 수법.
+
+    `asof_batter_success_rate` / `_middle_rate` 도 **커리어 누적**이고 분모는
+    `asof_batter_n` 이다. 투수측과 구조가 완전히 같으므로 같은 복원이 성립한다.
+
+    기대는 작다: eda10 의 선형 대리모형에서 투수 5개가 +83(실측 +72.2)인데
+    타자 2개는 **+10** 이었다. 타자 축의 진짜 신호가 0.138% 뿐이기 때문이다
+    (투수 0.828%). 다만 코드가 이미 있고 '새 정보' 부류(전달률 0.85)라 값이 싸다.
+    """
+    if _WSBAT:
+        return _WSBAT
+    cols = ['season', 'batter_id', 'asof_batter_n'] +            [f'asof_batter_{k}_rate' for k in _BRATES]
+    tr = _read_tr(cols)
+    n = tr['asof_batter_n'].to_numpy(dtype='float64')
+    first = tr.assign(_n=n).sort_values('_n').groupby(
+        ['batter_id', 'season'], sort=False).head(1)
+    key = pd.MultiIndex.from_arrays([tr['batter_id'], tr['season']])
+    fi = first.set_index(['batter_id', 'season'])
+    n0 = fi['_n'].reindex(key).to_numpy()
+    wn = np.maximum(n - n0, 0.0)
+    out = {'wb_n': wn, 'wb_share': wn / np.maximum(n, 1.0)}
+    for k in _BRATES:
+        col = f'asof_batter_{k}_rate'
+        x = (tr[col].fillna(0).to_numpy(dtype='float64') * n).round()
+        x0 = (fi[col].fillna(0).reindex(key).to_numpy() * n0).round()
+        wx = np.clip(x - x0, 0.0, wn)
+        prior = float(np.nanmean(tr[col].to_numpy(dtype='float64')))
+        rate = (wx + prior * 100.0) / (wn + 100.0)
+        lgk = tr.assign(_v=tr[col]).groupby('season')['_v'].mean()
+        out[f'wb_{k}'] = rate - tr['season'].map(lgk).to_numpy(dtype='float64')
+    _WSBAT.update(out)
+    print('    타자 당해시즌 복원: 타석수 중앙값 %.0f | ' % np.median(wn)
+          + ' '.join(f'{k}={np.nanmean(out["wb_"+k]):+.4f}' for k in _BRATES), flush=True)
+    return _WSBAT
+
+
+def cand_wsbat(ctx, **kw):
+    """wseason5 + 타자측 당해 시즌 복원. 비교 기준은 wseason5."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1037,6 +1087,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'pmix': cand_pmix, 'wspmix': cand_wspmix,
          'xprob': cand_xprob, 'wsxprob': cand_wsxprob,
          'ws5gt': cand_ws5gt, 'condgt': cand_condgt,
+         'wsbat': cand_wsbat,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
@@ -1066,7 +1117,14 @@ def main():
     ctx = {'Xh': X[mh].reset_index(drop=True), 'yh': y[mh],
            'Xv': X[mv].reset_index(drop=True), 'yv': y[mv],
            'sh': season[mh], 'params': params, 'cat': meta['cat_features']}
-    ctx['target'] = float(ctx['yv'].mean())
+    ctx['score_mask'] = None
+    if DROP_F:
+        gt = X.loc[mv, 'game_type'].astype(str).to_numpy()
+        ctx['score_mask'] = gt != 'F'
+        print(f"⚠️ {HOLDOUT} 검증에서 F(퓨처스) {(~ctx['score_mask']).sum():,}행을 "
+              f"채점에서 뺀다 ({(~ctx['score_mask']).mean():.1%})", flush=True)
+    ctx['target'] = float(ctx['yv'][ctx['score_mask']].mean() if ctx['score_mask']
+                          is not None else ctx['yv'].mean())
     print(f"학습 {mh.sum():,}행(~{HOLDOUT-1}) -> 검증 {mv.sum():,}행({HOLDOUT}) "
           f"| 반복 {iters} | fold {FOLDS}\n", flush=True)
 
@@ -1075,8 +1133,9 @@ def main():
         t = time.time()
         print(f'[{n}] 시작', flush=True)
         p = recenter(CANDS[n](ctx), ctx['target'])
-        s = skill(p, ctx['yv'])
-        res[f'{n}@{iters}'] = round(float(s), 1)
+        k_ = ctx['score_mask']
+        s = skill(p, ctx['yv']) if k_ is None else skill(p[k_], ctx['yv'][k_])
+        res[f'{n}@{iters}' + ('' if HOLDOUT == 2024 else f'#{HOLDOUT}')] = round(float(s), 1)
         json.dump(res, open(RESULTS, 'w'), indent=2, sort_keys=True)
         print(f'[{n}] {s:,.0f}점  ({(time.time()-t)/60:.0f}분)\n', flush=True)
 
