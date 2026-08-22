@@ -5,6 +5,15 @@
 #   3) CPU 30모델이 다 모였으면 조립 + 독립성 검증까지 한다
 cd /c/Users/nojh4/github/LG-Aimers
 
+# 밤새 슬롯이 없어 못 올라간 커널이 있으면 먼저 올린다
+echo "===== 미실행 커널 push ====="
+for k in ktsk; do
+  st=$(PYTHONUTF8=1 kaggle kernels status homekeggle/aimers-$k 2>/dev/null | tr -d '' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2)
+  if [ "$st" != "RUNNING" ] && [ ! -f "kaggle_output/$k/aimers-$k.log" ]; then
+    (cd ".kernels/$k" && PYTHONUTF8=1 kaggle kernels push -p . 2>&1 | tail -1)
+  fi
+done
+
 echo "===== 커널 상태 ====="
 for k in cpua cpub cpuc kgt1 kgt2 ktsk k23 kbat; do
   s=$(PYTHONUTF8=1 kaggle kernels status homekeggle/aimers-$k 2>/dev/null \
