@@ -940,6 +940,66 @@ def cand_tskill(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _tskill_cols())
 
 
+_WS5C = {}
+
+
+def _ws5_C(C):
+    """`wseason5` 를 임의의 shrink 상수 C 로 다시 만든다.
+
+    현행 C=100 은 근거 없이 정한 값이고 **한 번도 안 돌려봤다.**
+    C 는 '당해 시즌 성적을 몇 구부터 믿을 것인가' 를 정한다 —
+        rate = (당해 성공수 + 리그평균 x C) / (당해 투구수 + C)
+    당해 투구수 중앙값이 526 이므로 C=100 은 대부분의 행에서 약하게 당기지만,
+    시즌 초 구간(7.4% 가 0~60구)에서는 거의 리그평균으로 눌러버린다.
+
+    group_oof 가 '당해 시즌 폼' 축 전체를 301점으로 쟀다. 그 축의 **추정기 정확도**가
+    곧바로 점수이므로 C 는 유일하면서 값싼 손잡이다.
+    모델 규제가 아니라 새 정보의 추정 방식이라 홀드아웃의 소표본 편향을 덜 받는다.
+    """
+    if C in _WS5C:
+        return _WS5C[C]
+    base = _wseason5_cols()                    # 복원값(wx, wn)은 C 와 무관하다
+    cols = ['season', 'pitcher_id', 'asof_pitcher_n'] +            [f'asof_pitcher_{k}_rate' for k in _RATES]
+    tr = _read_tr(cols)
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')
+    first = tr.assign(_n=n).sort_values('_n').groupby(
+        ['pitcher_id', 'season'], sort=False).head(1)
+    key = pd.MultiIndex.from_arrays([tr['pitcher_id'], tr['season']])
+    fi = first.set_index(['pitcher_id', 'season'])
+    n0 = fi['_n'].reindex(key).to_numpy()
+    wn = np.maximum(n - n0, 0.0)
+    out = {'w5_n': wn, 'w5_share': wn / np.maximum(n, 1.0)}
+    for k in _RATES:
+        col = f'asof_pitcher_{k}_rate'
+        x = (tr[col].fillna(0).to_numpy(dtype='float64') * n).round()
+        x0 = (fi[col].fillna(0).reindex(key).to_numpy() * n0).round()
+        wx = np.clip(x - x0, 0.0, wn)
+        prior = float(np.nanmean(tr[col].to_numpy(dtype='float64')))
+        rate = (wx + prior * C) / (wn + C)
+        lgk = tr.assign(_v=tr[col]).groupby('season')['_v'].mean()
+        out[f'w5_{k}'] = rate - tr['season'].map(lgk).to_numpy(dtype='float64')
+    d = np.abs(out['w5_success'] - base['w5_success'])
+    print(f'    C={C:g} | success 이동 평균 {d.mean():.4f} 최대 {d.max():.4f} '
+          f'| std {np.nanstd(out["w5_success"]):.4f}', flush=True)
+    _WS5C[C] = out
+    return out
+
+
+def cand_ws5c30(ctx, **kw):
+    """wseason5, shrink C=30 (당해 시즌을 더 빨리 믿는다)."""
+    return _add(ctx, _ws5_C(30.0))
+
+
+def cand_ws5c300(ctx, **kw):
+    """wseason5, shrink C=300 (더 보수적으로 당긴다)."""
+    return _add(ctx, _ws5_C(300.0))
+
+
+def cand_ws5c10(ctx, **kw):
+    """wseason5, shrink C=10 (거의 날것)."""
+    return _add(ctx, _ws5_C(10.0))
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1202,6 +1262,8 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'ws5gt': cand_ws5gt, 'condgt': cand_condgt,
          'wsbat': cand_wsbat,
          'tskill': cand_tskill,
+         'ws5c10': cand_ws5c10, 'ws5c30': cand_ws5c30,
+         'ws5c300': cand_ws5c300,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
