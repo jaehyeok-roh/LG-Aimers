@@ -56,5 +56,5 @@ PYTHONUTF8=1 python tools/assemble_cpu.py && {
 
 echo; echo "===== 다음 ====="
 echo "  통과했으면 out/submit_cpu30.zip 제출 (기대 ~1064)"
-echo "  eda29 재실행:  PYTHONUTF8=1 python tools/eda29.py 1000"
+echo "  eda30 실행(eda29 는 역산 누수로 무효):  PYTHONUTF8=1 python tools/eda30.py 1000"
 echo "  대기 커널 push: bash tools/queue_push.sh k23 kbat"
