@@ -329,6 +329,51 @@ def _wseason5_cols():
     return _WS5
 
 
+_WS5B = {}
+
+
+def _wseason5b_cols():
+    """`_wseason5_cols` 의 디트렌드 기준을 고친 판.
+
+    ⚠️ 원래 판은 **커리어 컬럼(asof_pitcher_*_rate)의 시즌 평균**으로 뺐다.
+       그런데 우리가 만드는 값은 **당해 시즌 비율**이고 둘의 평균 차이가
+       시즌마다 흔들린다 (success: 2019 -0.000 / 2023 -0.029 / 2024 -0.022).
+       그래서 디트렌드가 절반만 되고 시즌 의존 잔차가 남는다.
+       여기서는 **복원된 값 자체의 시즌 평균**으로 뺀다 -> 모든 시즌이 0 에 중심.
+    """
+    if _WS5B:
+        return _WS5B
+    W = dict(_wseason5_cols())          # 원판을 재사용해 wn/원시비율을 얻는다
+    season = np.load(f'{CACHE}/season.npy')
+    # 원판은 이미 (rate - asof컬럼 시즌평균) 이므로, 그 결과의 시즌 평균을 다시 뺀다.
+    # 두 번 빼면 결국 '복원값의 시즌평균' 으로 뺀 것과 같다.
+    out = {'w5_n': W['w5_n'], 'w5_share': W['w5_share']}
+    for k in _RATES:
+        v = np.array(W[f'w5_{k}'], dtype='float64')
+        adj = v.copy()
+        for s in np.unique(season):
+            m = season == s
+            adj[m] = v[m] - np.nanmean(v[m])
+        out[f'w5_{k}'] = adj
+    _WS5B.update(out)
+    print('    디트렌드 재기준: ' + ' '.join(
+        f'{k}={np.nanmean(out["w5_"+k]):+.5f}' for k in _RATES), flush=True)
+    return _WS5B
+
+
+def cand_wseason5b(ctx, **kw):
+    """고친 디트렌드로 다섯 비율 전부."""
+    W = _wseason5b_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def cand_wseason5(ctx, **kw):
     """다섯 비율 전부 + 표본크기 = 7개 추가."""
     W = _wseason5_cols()
@@ -612,6 +657,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'mono': cand_mono, 'mono2': cand_mono2, 'plain': cand_plain,
          'wseason': cand_wseason, 'wseason1': cand_wseason1,
          'wseason5': cand_wseason5, 'wseason4': cand_wseason4,
+         'wseason5b': cand_wseason5b,
          'nogt': cand_nogt, 'dropoldF': cand_dropoldF,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}

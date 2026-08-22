@@ -153,6 +153,27 @@ print(f"pitcher_prior.csv  {len(_pp):,}행 | {_tgt} 리그평균 외삽 "
 '''
 setsrc(i7, src(i7) + SAVE)
 
+# ⚠️ 오프셋 셀(cell 10)이 train_constants.json 을 **통째로 덮어쓴다**.
+# 그대로 두면 위에서 넣은 ws_* 키가 지워지고, script.py 가 복원 블록을 건너뛰어
+# w_* 가 전부 NaN 이 된다 (학습은 실제값 -> 트랙맨 exact 사고와 같은 유형).
+# 첫 빌드에서 실제로 이 버그를 밟았다. 덮어쓰기 뒤에 ws_* 를 다시 넣는다.
+i10 = code[10]
+_OLD_OFF = 'print(f"\\ntrain_constants.json 저장: recenter_offset={RECENTER_OFFSET:+.4f}")'
+_NEW_OFF = ('# 오프셋 셀이 파일을 덮어쓰므로 ws_* 상수를 다시 넣는다\n'
+            'with open("model/train_constants.json", "r") as f:\n'
+            '    _tc = json.load(f)\n'
+            '_tc["ws_target_season"] = int(df_train["season"].max()) + 1\n'
+            '_tc["ws_league_mean"] = ws_next_season_mean('
+            'ws_season_means(df_train), _tc["ws_target_season"])\n'
+            '_tc["ws_rates"] = WS_RATES\n'
+            '_tc["ws_C"] = WS_C\n'
+            'with open("model/train_constants.json", "w") as f:\n'
+            '    json.dump(_tc, f)\n'
+            'assert "ws_league_mean" in json.load(open("model/train_constants.json")), '
+            '"ws 상수 유실"\n'
+            + _OLD_OFF)
+sub(i10, _OLD_OFF, _NEW_OFF)
+
 # ---------------------------------------------------------------- 4) script.py
 i11 = code[11]
 INFER = '''
