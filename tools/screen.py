@@ -402,6 +402,130 @@ def cand_wseason4(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
 
 
+_PMIX = {}
+
+
+def _pmix_cols():
+    """상황별 **구종 성향** (트랙맨 기반, EDA 2026-08-22).
+
+    발견 경로: train x trackman 을 투구 1:1 로 정렬해보니 **실제 구종을 알면 +478** 이다
+    (변화구가 제구하기 어렵다). 실제 구종은 추론 시 못 쓰지만 '그 상황에서 그 투수가
+    무엇을 던지는가' 는 트랙맨(공식 학습 데이터)에서 만들 수 있고 합법이다.
+
+    ⚠️ 처음 쟀을 때는 -12(=0) 였다. base 에 투수-시즌 **평균 물리량 8개**가 있어서
+       레퍼토리가 이미 중복돼 있었고, 정렬된 23% 에서만 쟀기 때문이다. 불공정했다.
+       공정한 base 로 다시 재니 **+76** 이다:
+         투수 전체 믹스 +42 / 상황 편차(pc+pch) +55 / 둘 다 +76
+
+    왜 `cond_pc`(투수x카운트 **성적**)보다 유리한가: 성적은 잡음투성이라 카운트 12개로
+    쪼개면 표본이 죽는데, **구종 선택은 결정론적에 가까워** 적은 표본으로도 잘 추정된다.
+
+    ⚠️ staleness: 트랙맨에 2025 가 없다. 다만 성능 지표는 1년 묵으면 77% 를 잃는 반면
+       **레퍼토리는 해가 바뀌어도 안정적**이라 손실이 작다 (위 +76 은 트랙맨 <=2023 으로
+       2024 를 맞힌 값이므로 이미 배포 조건이다).
+
+    leak-free: 각 행은 **자기 시즌보다 과거**의 트랙맨만 쓴다 (cond_* 와 같은 패턴).
+    """
+    if _PMIX:
+        return _PMIX
+    import glob
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+
+    def _find(name):
+        c = ([f'data/{name}'] if os.path.exists(f'data/{name}') else []) + \
+            glob.glob(f'/kaggle/input/**/{name}', recursive=True)
+        if not c:
+            raise SystemExit(f'{name} 을 못 찾음')
+        return c[0]
+
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    tr = pd.read_csv(_find('train.csv'),
+                     usecols=['row_id', 'season', 'pitcher_id', 'batter_hand',
+                              'balls_before', 'strikes_before'],
+                     keep_default_na=False, na_values=_na)
+    tr = tr.set_index('row_id').reindex(pd.Index(rid)).reset_index()
+    tm = pd.read_csv(_find('trackman_history.csv'),
+                     usecols=['pitcher_trackman_id', 'season', 'balls_before',
+                              'strikes_before', 'batter_hand', 'pitch_type_group'],
+                     keep_default_na=False, na_values=_na)
+    mp = pd.read_csv(_find('pitcher_id_mapping_v2.csv'),
+                     keep_default_na=False, na_values=_na)
+    tm = tm.merge(mp[['pitcher_id', 'pitcher_trackman_id', 'season']].dropna(),
+                  on=['pitcher_trackman_id', 'season'], how='inner')
+    T = sorted(tm['pitch_type_group'].dropna().unique())
+    tm['ct'] = tm['balls_before'].astype(str) + '-' + tm['strikes_before'].astype(str)
+    tr['ct'] = tr['balls_before'].astype(str) + '-' + tr['strikes_before'].astype(str)
+    tr['bh'] = tr['batter_hand'].map({1: 'Left', 2: 'Right'}).fillna(
+        tr['batter_hand'].astype(str))
+    C = 30.0
+
+    n = len(tr)
+    out = {f'pmix_{t}': np.full(n, np.nan) for t in T}
+    out.update({f'pdev_c_{t}': np.full(n, np.nan) for t in T})
+    out.update({f'pdev_ch_{t}': np.full(n, np.nan) for t in T})
+    out['pmix_have'] = np.zeros(n)
+
+    for s in sorted(tr['season'].unique()):
+        past = tm[tm['season'] < s]
+        if len(past) == 0:
+            continue
+        m = (tr['season'] == s).to_numpy()
+        sub = tr[m]
+        allmix = past.groupby(['pitcher_id', 'pitch_type_group']).size().unstack(
+            fill_value=0).reindex(columns=T, fill_value=0)
+        allmix = allmix.div(allmix.sum(1).clip(lower=1), axis=0)
+        P = allmix.reindex(sub['pitcher_id']).to_numpy(dtype='float64')
+
+        def shr(keys, dcols):
+            g = past.groupby(keys + ['pitch_type_group']).size().unstack(
+                fill_value=0).reindex(columns=T, fill_value=0)
+            b = allmix.reindex(g.index.get_level_values('pitcher_id')).to_numpy('float64')
+            nn = g.sum(1).to_numpy()[:, None]
+            tab = pd.DataFrame((g.to_numpy() + b * C) / (nn + C), index=g.index, columns=T)
+            return tab.reindex(pd.MultiIndex.from_arrays(
+                [sub[c] for c in dcols])).to_numpy(dtype='float64')
+
+        Pc = shr(['pitcher_id', 'ct'], ['pitcher_id', 'ct'])
+        Pch = shr(['pitcher_id', 'ct', 'batter_hand'], ['pitcher_id', 'ct', 'bh'])
+        for i, t in enumerate(T):
+            out[f'pmix_{t}'][m] = P[:, i]
+            out[f'pdev_c_{t}'][m] = Pc[:, i] - P[:, i]
+            out[f'pdev_ch_{t}'][m] = Pch[:, i] - P[:, i]
+        out['pmix_have'][m] = (~np.isnan(P[:, 0])).astype(float)
+
+    _PMIX.update(out)
+    print(f'    구종 성향 {len(out)}개 | 커버리지 {out["pmix_have"].mean():.1%} | '
+          f'구종군 {T}', flush=True)
+    return _PMIX
+
+
+def cand_pmix(ctx, **kw):
+    """구종 성향 (전체 믹스 + 상황 편차)."""
+    W = _pmix_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_wspmix(ctx, **kw):
+    """★ 당해 시즌 복원 + 구종 성향 — 오늘 살아남은 둘을 합친다."""
+    A, B = _wseason5_cols(), _pmix_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (A, B):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -659,6 +783,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'wseason5': cand_wseason5, 'wseason4': cand_wseason4,
          'wseason5b': cand_wseason5b,
          'nogt': cand_nogt, 'dropoldF': cand_dropoldF,
+         'pmix': cand_pmix, 'wspmix': cand_wspmix,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
 
