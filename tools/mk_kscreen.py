@@ -17,6 +17,8 @@ import ast, base64, json, os, sys
 BASE = '.kernels/s1o/aimers_s1o.ipynb'
 STOP = 'BEST_PARAMS = _found'
 EXTRA_ENV = json.loads(os.environ.get('KS_ENV', '{}'))  # 커널 안으로 넘길 환경변수
+# 작은 부속 파일을 base64 로 커널에 같이 싣는다 (예: 구종별 실력 룩업 382KB)
+EXTRA_FILES = [f for f in os.environ.get('KS_FILES', '').split(',') if f]
 TAG = os.environ.get('KS_TAG', 'kscreen')   # 커널을 동시에 여러 개 띄우려면 바꾼다
 SCRIPT = os.environ.get('KS_SCRIPT', 'tools/screen.py')   # 다른 도구도 같은 커널로 돌린다
 CANDS = sys.argv[1:] or ['base', 'diff']
@@ -54,12 +56,20 @@ print("매핑 덤프", len(pitcher_id_mapping), flush=True)
 print("캐시 저장 완료", X_full.shape, flush=True)
 '''
 
+EXTRA_B64 = {f: __import__('base64').b64encode(open(f,'rb').read()).decode()
+             for f in EXTRA_FILES}
+
 RUN = f'''# ===== 스크리너 실행 =====
 import base64, pathlib, subprocess, sys, os, json
 _B64 = """{b64}"""
 pathlib.Path("screen.py").write_text(
     base64.b64decode("".join(_B64.split())).decode("utf-8"), encoding="utf-8")
 print("screen.py 풀기 완료", flush=True)
+import base64 as _b64
+for _p, _d in {EXTRA_B64!r}.items():
+    pathlib.Path(_p).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(_p).write_bytes(_b64.b64decode(_d))
+    print("부속 파일", _p, pathlib.Path(_p).stat().st_size, "바이트", flush=True)
 
 CANDS = {CANDS!r}
 _env = dict(os.environ, SCREEN_CACHE=("/tmp/cache" if os.path.isdir("/kaggle") else "cache"))

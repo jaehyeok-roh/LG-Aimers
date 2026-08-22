@@ -867,14 +867,24 @@ def _tskill_cols():
         d['batter_hand'].astype(str))
 
     # ---- (1) 구종별 실력: 정렬된 투구에서만 얻을 수 있다
-    ap = _find('aligned.parquet', 'cache/raw/')
-    a = pd.read_parquet(ap, columns=['season', 'game_type', 'pitcher_id',
-                                     'pitch_type_group', 'control_success'])
-    a['pg'] = a['pitch_type_group'].astype(str).str.lower()
+    # aligned.parquet 은 94MB 로컬 파일이라 캐글 커널엔 없다. 미리 뽑아둔
+    # 룩업(target_season x pitcher x 구종 -> skill, 382KB)을 먼저 찾는다.
     T = ['fastball', 'breaking', 'offspeed']
-    a = a[a['pg'].isin(T)].copy()
-    a['dev'] = a['control_success'] - a.groupby(
-        ['season', 'game_type'])['control_success'].transform('mean')
+    TAB, a = None, None
+    for c in ('cache/raw/tskill_table.csv', 'tskill_table.csv',
+              'model/tskill_table.csv'):
+        if os.path.exists(c):
+            TAB = pd.read_csv(c)
+            print(f'    구종별 실력 룩업 {c} ({len(TAB):,}행)', flush=True)
+            break
+    if TAB is None:
+        ap = _find('aligned.parquet', 'cache/raw/')
+        a = pd.read_parquet(ap, columns=['season', 'game_type', 'pitcher_id',
+                                         'pitch_type_group', 'control_success'])
+        a['pg'] = a['pitch_type_group'].astype(str).str.lower()
+        a = a[a['pg'].isin(T)].copy()
+        a['dev'] = a['control_success'] - a.groupby(
+            ['season', 'game_type'])['control_success'].transform('mean')
 
     # ---- (2) 상황별 구종 믹스: 트랙맨 전체 (정렬 안 된 것도 쓴다)
     tm = pd.read_csv(_find('trackman_history.csv'),
@@ -897,12 +907,21 @@ def _tskill_cols():
     for s in sorted(d['season'].unique()):
         m = (d['season'] == s).to_numpy()
         sub = d[m]
-        pa, pt = a[a['season'] < s], tm[tm['season'] < s]
-        if not len(pa) or not len(pt):
+        pt = tm[tm['season'] < s]
+        if not len(pt):
             continue
-        # 구종별 실력 (투수 x 구종)
-        g = pa.groupby(['pitcher_id', 'pg'])['dev'].agg(['sum', 'size'])
-        sk = (g['sum'] / (g['size'] + C_SK)).unstack().reindex(columns=T)
+        if TAB is not None:                     # 미리 뽑아둔 룩업 (누수 없음: target_season 기준)
+            q = TAB[TAB['target_season'] == s]
+            if not len(q):
+                continue
+            sk = q.pivot(index='pitcher_id', columns='pg',
+                         values='skill').reindex(columns=T)
+        else:
+            pa = a[a['season'] < s]
+            if not len(pa):
+                continue
+            g = pa.groupby(['pitcher_id', 'pg'])['dev'].agg(['sum', 'size'])
+            sk = (g['sum'] / (g['size'] + C_SK)).unstack().reindex(columns=T)
         # 믹스: 투수 전체 / 투수 x 카운트 x 손
         def _mix(keys, dcols):
             gg = pt.groupby(keys + ['pg']).size().unstack(fill_value=0).reindex(
