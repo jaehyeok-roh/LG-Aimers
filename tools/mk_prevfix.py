@@ -58,19 +58,32 @@ PF_COLS = (['pf_gest'] + ['pf_cross%d' % w for w in (1, 3, 5)]
 
 
 def pf_build_appearance(df):
-    """추론용 룩업: 투수별 **등판당 평균 투구수**.
+    """투수별 **등판당 평균 투구수**. 학습·추론 양쪽에서 같은 함수를 쓴다.
 
     train 을 경기 단위로 복원해서 센다. (season, month, dow, game_type) 변화
     또는 이닝 하락에서 자르면 R 이 시즌마다 정확히 720경기가 나온다 (KBO 정규시즌).
-    ⚠️ 복원은 **원본 행 순서**에 의존한다 — 정렬된 프레임을 넣으면 안 된다.
+
+    ⚠️⚠️ 복원은 **원본 행 순서**에 의존한다. run_full_pipeline 은 트랙맨 merge_asof
+    때문에 time_idx 로 정렬하므로(claude.md 4-15) 파이프라인 안에서 부르면 깨진다 —
+    실제로 첫 빌드에서 경기가 4,868개가 아니라 213,726개로 쪼개졌고 등판당 투구수가
+    24.9 대신 3.1 이 나왔다. 학습은 cross≈0, 추론은 cross=22.6% 로 **규칙이 갈렸다**
+    (트랙맨 exact/asof -36점과 같은 실패 유형).
+    row_id 가 제로패딩(TRAIN_0000001)이라 정렬만으로 원본 순서가 복원된다.
     """
-    k = df[['season', 'game_month', 'game_dayofweek', 'game_type']].astype(str).agg(
+    d = df.sort_values('row_id') if 'row_id' in df.columns else df
+    k = d[['season', 'game_month', 'game_dayofweek', 'game_type']].astype(str).agg(
         '|'.join, axis=1)
-    gid = ((k != k.shift()) | (df['inning'].diff() < 0)).cumsum()
-    ap = df.assign(_g=gid).groupby(['pitcher_id', '_g']).size()
+    gid = ((k != k.shift()) | (d['inning'].diff() < 0)).cumsum()
+    ng = gid.nunique()
+    ap = d.assign(_g=gid).groupby(['pitcher_id', '_g']).size()
     avg = ap.groupby(level=0).mean().rename('pf_avg_pa').reset_index()
-    print("  경기 복원 %d개 | 등판 %d개 | 등판당 투구수 중앙 %.1f"
-          % (gid.nunique(), len(ap), avg['pf_avg_pa'].median()))
+    med = avg['pf_avg_pa'].median()
+    print("  경기 복원 %d개 | 등판 %d개 | 등판당 투구수 중앙 %.1f" % (ng, len(ap), med))
+    # 알려진 정답으로 자체 검증한다 — 6시즌 x (R 720 + F 76~104) = 4,868
+    if not (4300 <= ng <= 5400):
+        raise RuntimeError("경기 복원이 %d개다 (기대 ~4,868). 행 순서가 원본이 아니다." % ng)
+    if not (18.0 <= med <= 32.0):
+        raise RuntimeError("등판당 투구수 중앙이 %.1f 다 (기대 ~24.9)." % med)
     return avg
 
 
