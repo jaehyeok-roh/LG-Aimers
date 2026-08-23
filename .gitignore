@@ -244,3 +244,19 @@ screen_out/
 .kernels/
 topt_out/
 zipsds/
+
+# ---- 대용량 산출물 (전부 재생성 가능) ----
+# 줄 끝 주석은 패턴의 일부로 읽히므로 반드시 따로 줄을 쓸 것
+# 스크리너 캐시 (X.pkl 835MB)
+cache/
+# 캐글 커널 회수물
+kaggle_output/
+# 제출 zip 조립 · 로컬 실행 로그
+out/
+# 옛 산출물
+archive/
+# 원본 데이터 (주최측 배포)
+data/
+# 학습 산출물 — 룩업 테이블만 예외
+model/
+!model/tskill_table.csv
