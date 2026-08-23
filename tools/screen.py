@@ -1204,6 +1204,97 @@ def cand_wsbtsk(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _wsbat_cols(), _tskill_cols())
 
 
+_PGF = {}
+_PG_SPEC = [('asof_pitcher_prev1_game_success_rate', 1),
+            ('asof_pitcher_prev3_game_success_rate', 3),
+            ('asof_pitcher_prev5_game_success_rate', 5),
+            ('asof_pitcher_prev1_game_middle_rate', 1),
+            ('asof_pitcher_prev3_game_middle_rate', 3),
+            ('asof_pitcher_prev5_game_middle_rate', 5)]
+
+
+def _prevfix_cols():
+    """★ prev-game 지표의 시즌 경계 오염을 고친다 — 두 겹 전부.
+
+    `asof_pitcher_prev{1,3,5}_game_*` 는 **시즌 경계를 넘는다.**
+      prev5 에 작년분이 섞인 행 22.6% / prev3 14.5% / prev1 5.3%
+      당해 0~60구 & 이력 있는 투수 82,826행에서 prev5 단독 스킬 **-3,224** (적극적 독)
+
+    오염이 두 겹이다:
+      (A) 수준 — 작년 값이 작년 리그 수준을 달고 온다
+      (B) 관련성 — 작년 마지막 5경기는 올해 폼과 사실상 무관하다
+
+    2026-08-22 시도는 (A)만 고쳐서 +6 이었다. 그 측정은 **`wseason5` 이전**이라
+    모델이 `w_n`(당해 시즌 투구수)을 몰랐다 — 즉 (B)를 배울 재료가 없었다.
+    지금은 있다. 그리고 +6 은 wsbat(+3.0 -> LB +30.11)과 같은 거짓 음성 구간이다.
+
+    여기서는 (B)를 **직접** 준다: prev-N 창 중 작년분 비율.
+        등판수 추정 = w_n / (그 투수의 등판당 평균 투구수, train 룩업)
+        cross_N     = clip(N - 등판수추정, 0, N) / N
+    자기 행의 asof + train 룩업만 쓰므로 규정상 안전하다 (wseason 과 같은 논리).
+    """
+    if _PGF:
+        return _PGF
+    cols = (['season', 'game_month', 'game_dayofweek', 'game_type', 'inning',
+             'pitcher_id', 'asof_pitcher_n'] + [c for c, _ in _PG_SPEC])
+    tr = _read_tr(cols)
+
+    # 경기 복원 -> 투수별 등판당 평균 투구수 (train 룩업)
+    # ⚠️ 복원은 **원본 행 순서**에 의존한다. _read_tr 은 캐시 순서(파이프라인이
+    #    time_idx 로 정렬한 것)로 리인덱스하므로 여기서 원본을 따로 읽어야 한다.
+    #    (claude.md 4-15: run_full_pipeline 은 행 순서를 바꾼다)
+    import glob as _g
+    _na2 = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+    _c = ([f for f in ('data/train.csv',) if os.path.exists(f)]
+          + _g.glob('/kaggle/input/**/train.csv', recursive=True))
+    raw = pd.read_csv(_c[0], usecols=['season', 'game_month', 'game_dayofweek',
+                                      'game_type', 'inning', 'pitcher_id'],
+                      keep_default_na=False, na_values=_na2)
+    k = raw[['season', 'game_month', 'game_dayofweek', 'game_type']].astype(str).agg(
+        '|'.join, axis=1)
+    gid = ((k != k.shift()) | (raw['inning'].diff() < 0)).cumsum()
+    ap = raw.assign(g=gid).groupby(['pitcher_id', 'g']).size()
+    avg = ap.groupby(level=0).mean()
+    print(f'    경기 복원 {gid.nunique():,}개 | 등판 {len(ap):,}개 | '
+          f'등판당 투구수 중앙 {avg.median():.1f}', flush=True)
+    del raw
+
+    # 당해 시즌 투구수 (wseason 과 같은 방식)
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')
+    o = np.argsort(n, kind='stable')
+    first = tr.iloc[o].groupby(['pitcher_id', 'season'], sort=False).head(1)
+    key = pd.MultiIndex.from_arrays([tr['pitcher_id'], tr['season']])
+    n0 = first.set_index(['pitcher_id', 'season'])['asof_pitcher_n'].reindex(
+        key).to_numpy(dtype='float64')
+    wn = np.maximum(n - n0, 0.0)
+    gest = wn / np.maximum(tr['pitcher_id'].map(avg).to_numpy(dtype='float64'), 1.0)
+    _PGF['pg_gest'] = gest
+
+    lg_by_season = {c: tr.groupby('season')[c].mean() for c, _ in _PG_SPEC}
+    seen = set()
+    for c, w in _PG_SPEC:
+        cross = np.clip(w - gest, 0.0, w) / w
+        if w not in seen:
+            _PGF[f'pg_cross{w}'] = cross          # (B) 관련성: 작년분 비율
+            seen.add(w)
+        m = lg_by_season[c]
+        cur = tr['season'].map(m).to_numpy(dtype='float64')
+        prv = tr['season'].sub(1).map(m).to_numpy(dtype='float64')
+        prv = np.where(np.isfinite(prv), prv, cur)
+        blend = cur * (1.0 - cross) + prv * cross   # (A) 수준: 가리키는 시즌으로 디트렌드
+        _PGF['pg_' + c.replace('asof_pitcher_', '')] =             tr[c].to_numpy(dtype='float64') - blend
+    print(f'    prev-game 보정 {len(_PGF)}개 | 작년분 섞인 행 '
+          f'prev1 {(_PGF["pg_cross1"] > 0).mean():.1%} '
+          f'prev3 {(_PGF["pg_cross3"] > 0).mean():.1%} '
+          f'prev5 {(_PGF["pg_cross5"] > 0).mean():.1%}', flush=True)
+    return _PGF
+
+
+def cand_prevfix(ctx, **kw):
+    """★ wsboth + prev-game 시즌 경계 보정 (수준 + 관련성 둘 다)."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _prevfix_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1474,6 +1565,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'wsboth': cand_wsboth, 'condb': cand_condb,
          'wsbsit': cand_wsbsit, 'wsbpmix': cand_wsbpmix,
          'wsbtsk': cand_wsbtsk,
+         'prevfix': cand_prevfix,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
