@@ -1140,6 +1140,70 @@ def cand_condsit(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _condsit_cols())
 
 
+_CONDB = {}
+
+
+def _condb_cols():
+    """★ 타자측 조건부통계 — 2024 홀드아웃에서 +1 로 기각했던 것을 되살린다.
+
+    claude.md 는 "cond_p(투수) +27 vs cond_b(타자) +1 — 27배 비대칭.
+    제구 성공에 타자는 거의 기여하지 않는다" 고 단정했다.
+    **그 근거가 전부 2024 홀드아웃이었고, wsbat 이 그것을 깨뜨렸다**
+    (2024 +3.0 / 2023 +71.7 / 리더보드 **+30.11**).
+
+    구조는 cond_p 가족과 동일: 시즌 리그평균 디트렌드 -> sum/(count+C) 로 0 에 shrink
+    -> 각 행은 자기 시즌보다 **과거** 시즌만으로 인코딩(leak-free).
+    """
+    if _CONDB:
+        return _CONDB
+    tr = _read_tr(['season', 'batter_id', 'batter_hand', 'pitcher_hand',
+                   'balls_before', 'strikes_before', 'control_success'])
+    tr['dev'] = tr['control_success'] - tr.groupby('season')['control_success'].transform('mean')
+    tr['ca'] = _count_adv(tr['balls_before'], tr['strikes_before'])
+    tr['ph'] = tr['pitcher_hand'].astype(str)
+
+    SPEC = {'cond_b': (['batter_id'], 200.0),
+            'cond_bc': (['batter_id', 'ca'], 100.0),
+            'cond_bp': (['batter_id', 'ph'], 100.0)}
+    for name, (keys, C) in SPEC.items():
+        g = tr.groupby(keys + ['season'])['dev'].agg(['sum', 'size']).sort_index()
+        lv = list(range(len(keys)))
+        cum = g.groupby(level=lv).cumsum().groupby(level=lv).shift(1)
+        val = cum['sum'] / (cum['size'] + C)
+        idx = pd.MultiIndex.from_arrays([tr[k] for k in keys] + [tr['season']])
+        _CONDB[name] = val.reindex(idx).to_numpy(dtype='float64')
+    print('    타자 조건부 3종 | ' + ' '.join(
+        f'{k}: 결측 {np.isnan(v).mean():.1%} std {np.nanstd(v):.4f}'
+        for k, v in _CONDB.items()), flush=True)
+    return _CONDB
+
+
+def cand_wsboth(ctx, **kw):
+    """★ 새 기준선 — wseason5 + wsbat. 리더보드 1088.83 의 구성이다.
+    앞으로 후보는 전부 이 위에서 재야 한다."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols())
+
+
+def cand_condb(ctx, **kw):
+    """★ wsboth + 타자측 조건부통계 3종."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _condb_cols())
+
+
+def cand_wsbsit(ctx, **kw):
+    """wsboth + 투수x상황(주자·이닝·점수차) — eda32 가 고른 축."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _condsit_cols())
+
+
+def cand_wsbpmix(ctx, **kw):
+    """재심: 구종 성향을 새 기준선 위에서 (2024 에서 +0.9 로 기각했던 것)."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _pmix_cols())
+
+
+def cand_wsbtsk(ctx, **kw):
+    """재심: 구종별 실력 x 상황믹스 (2024 에서 -9.3 으로 기각)."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _tskill_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1407,6 +1471,9 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'ws5nocond': cand_ws5nocond,
          'seasonlast2': cand_seasonlast2, 'seasonpair': cand_seasonpair,
          'condsit': cand_condsit,
+         'wsboth': cand_wsboth, 'condb': cand_condb,
+         'wsbsit': cand_wsbsit, 'wsbpmix': cand_wsbpmix,
+         'wsbtsk': cand_wsbtsk,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
