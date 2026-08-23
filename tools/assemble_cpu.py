@@ -22,9 +22,11 @@ import tempfile
 import zipfile
 
 PFX = os.environ.get('CS_PREFIX', 'wbc')
-SRC = [f'kaggle_output/{PFX}{t}/submit_cpu_{t}.zip' for t in 'abc']
+TAGS = os.environ.get('CS_TAGS', 'abc')      # 일부만 조립하려면 'ab'
+SRC = [f'kaggle_output/{PFX}{t}/submit_cpu_{t}.zip' for t in TAGS]
 REF = os.environ.get('CS_REF', 'out/submit_v10wb.zip')
-OUT = os.environ.get('CS_OUT', f'out/submit_{PFX}30.zip')
+NMOD = 10 * len(TAGS)
+OUT = os.environ.get('CS_OUT', f'out/submit_{PFX}{NMOD}.zip')
 PRE = ('ws_', 'wb_', 'pf_')          # 오프셋 셀이 날릴 수 있는 상수군 전부
 
 missing = [p for p in SRC if not os.path.exists(p)]
@@ -36,7 +38,7 @@ if os.path.exists(REF):
     ref = {k: v for k, v in json.loads(
         zipfile.ZipFile(REF).read('model/train_constants.json')).items()
         if k.startswith(PRE)}
-print(f'커널 묶음 {PFX}a/b/c -> {OUT}')
+print(f'커널 묶음 {PFX}[{TAGS}] -> {OUT}  (모델 {NMOD}개)')
 print(f'참조본 {REF} 상수 {sorted(ref) if ref else "(없음)"}\n')
 
 work = tempfile.mkdtemp(prefix=f'{PFX}30_')
@@ -90,10 +92,10 @@ for marker, need_file, need_key in NEED:
         if need_key not in tc2:
             bad.append(f'{need_key} 누락 — script.py 가 이 상수를 쓴다')
 
-if len(cbm) != 30:
-    bad.append(f'모델이 30개가 아니라 {len(cbm)}개')
-if len(iso) != 30:
-    bad.append(f'isotonic 이 30개가 아니라 {len(iso)}개')
+if len(cbm) != NMOD:
+    bad.append(f'모델이 {NMOD}개가 아니라 {len(cbm)}개')
+if len(iso) != NMOD:
+    bad.append(f'isotonic 이 {NMOD}개가 아니라 {len(iso)}개')
 for r in REQ:
     if not os.path.exists(os.path.join(root, r)):
         bad.append(f'{r} 없음')
