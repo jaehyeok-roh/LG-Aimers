@@ -1295,6 +1295,95 @@ def cand_prevfix(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _wsbat_cols(), _prevfix_cols())
 
 
+_BTTM = {}
+
+
+def _bttm_cols():
+    """★ 타자가 상대해온 투구 프로파일 (트랙맨). 두 겹으로 미검증인 축이다.
+
+    (1) **타자측 트랙맨은 독립 검증된 적이 없다.** 2026-08-18 에 zone_speed 와
+        **묶어서** 제출해 930.00(-2.96) 으로 롤백했는데, 그 뒤 zone_speed 단독이
+        929.61(-3.35) 로 거의 같은 낙폭을 냈다 -> 원인은 zone_speed 였고 타자 피처는
+        결백이다. claude.md 가 '독립적으로 재검증 필요' 라고 적어뒀는데 안 했다.
+
+    (2) **수준(level)을 한 번도 안 썼다.** eda13: 트랙맨 `_mean` 이 `_std` 의 2배를
+        설명하는데 우리 트랙맨 피처 20개 중 18개가 std 다. 타자측은 그마저 없다.
+
+    그리고 wsbat 이 리더보드 +30.11 로 **타자 축이 살아있음을 증명했다.**
+
+    구조: (타자, 시즌) 단위 집계, 각 행은 **자기 시즌보다 과거** 트랙맨만 (leak-free).
+    ⚠️ 트랙맨에 2025 가 없으므로 배포 시 1년 묵은 값을 쓴다 (투수측은 여기서 77% 를
+       잃었다). 다만 '상대해온 구질' 은 리그가 그 타자를 어떻게 다루는지라 성적보다
+       안정적일 수 있다 — 그게 이 후보의 유일한 근거다.
+    """
+    if _BTTM:
+        return _BTTM
+    import glob
+    _na = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
+
+    def _find(name, sub='data/'):
+        c = ([f'{sub}{name}'] if os.path.exists(f'{sub}{name}') else []) +             glob.glob(f'/kaggle/input/**/{name}', recursive=True)
+        if not c:
+            raise SystemExit(f'{name} 을 못 찾음')
+        return c[0]
+
+    M = ['rel_speed', 'spin_rate', 'induced_vert_break', 'horz_break']
+    T = ['fastball', 'breaking', 'offspeed']
+    d = _read_tr(['season', 'batter_id'])
+    tm = pd.read_csv(_find('trackman_history.csv'),
+                     usecols=['season', 'batter_trackman_id', 'pitch_type_group'] + M,
+                     keep_default_na=False, na_values=_na)
+    for c in ('cache/raw/gold_batter_map.csv', 'gold_batter_map.csv',
+              'model/gold_batter_map.csv'):
+        if os.path.exists(c):
+            mp = pd.read_csv(c, keep_default_na=False, na_values=_na)
+            break
+    else:
+        raise SystemExit('gold_batter_map.csv 를 못 찾음')
+    mp = mp[['batter_id', 'batter_trackman_id']].dropna().drop_duplicates(
+        subset=['batter_trackman_id'])
+    n0 = len(tm)
+    tm = tm.merge(mp, on='batter_trackman_id', how='inner')
+    if len(tm) > n0:
+        raise SystemExit(f'트랙맨 병합 팽창 {n0:,} -> {len(tm):,}')
+    tm['pg'] = tm['pitch_type_group'].astype(str).str.lower()
+
+    NAMES = ([f'bt_{c}_mean' for c in M] + ['bt_speed_std', 'bt_spin_std']
+             + [f'bt_mix_{t}' for t in T] + ['bt_n'])
+    out = {k: np.full(len(d), np.nan) for k in NAMES}
+    have = np.zeros(len(d))
+    for s in sorted(d['season'].unique()):
+        m = (d['season'] == s).to_numpy()
+        past = tm[tm['season'] < s]
+        if not len(past):
+            continue
+        g = past.groupby('batter_id')
+        agg = g[M].mean()
+        agg.columns = [f'bt_{c}_mean' for c in M]
+        agg['bt_speed_std'] = g['rel_speed'].std()
+        agg['bt_spin_std'] = g['spin_rate'].std()
+        mix = past.groupby(['batter_id', 'pg']).size().unstack(fill_value=0)
+        mix = mix.reindex(columns=T, fill_value=0)
+        mix = mix.div(mix.sum(1).clip(lower=1), axis=0)
+        mix.columns = [f'bt_mix_{t}' for t in T]
+        agg = agg.join(mix)
+        agg['bt_n'] = g.size()
+        sub = agg.reindex(pd.Index(d.loc[m, 'batter_id']))
+        for k in NAMES:
+            out[k][m] = sub[k].to_numpy(dtype='float64')
+        have[m] = np.isfinite(sub['bt_n'].to_numpy(dtype='float64')).astype(float)
+    out['bt_have'] = have
+    _BTTM.update(out)
+    print(f'    타자 피격 프로파일 {len(NAMES)+1}개 | 커버리지 {have.mean():.1%} | '
+          f'구속 평균 {np.nanmean(out["bt_rel_speed_mean"]):.1f}', flush=True)
+    return _BTTM
+
+
+def cand_bttm(ctx, **kw):
+    """★ wsboth + 타자가 상대해온 투구 프로파일 (트랙맨 수준 + 배합)."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _bttm_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1566,6 +1655,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'wsbsit': cand_wsbsit, 'wsbpmix': cand_wsbpmix,
          'wsbtsk': cand_wsbtsk,
          'prevfix': cand_prevfix,
+         'bttm': cand_bttm,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
