@@ -1045,6 +1045,47 @@ def cand_ws5nocond(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], cat)
 
 
+def _season_map(ctx, fn, tag):
+    """`season` 을 거칠게 만든 판. wseason5 위에서 잰다.
+
+    배포 모델의 season 분기 경계는 [2019.5 ... 2023.5] 로 **최대가 2023.5** 다
+    (eda31, 배포 zip 에서 직접 읽음). 따라서 2025 는 2024 와 **비트 단위로 같은 잎**
+    으로 간다 — 모델은 2025 에 '2024 전용으로 배운 것' 을 그대로 적용한다.
+    그게 추세면 좋고 2024 만의 우연이면 해롭다.
+
+    트리에서 그걸 건드리는 유일한 방법은 **마지막 시즌을 특별 취급하지 못하게
+    경계를 없애는 것**이다. season 을 지우는 것(-424)과 현행 사이의 중간 지점.
+
+    ⚠️ 기대값은 낮게 잡는다. -424 는 season 이 많은 것을 담고 있다는 뜻이라
+    거칠게 만들수록 잃을 것이 크다.
+    """
+    W = _wseason5_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for k, v in W.items():
+        Xh[k] = v[mh].astype(np.float32)
+        Xv[k] = v[mv].astype(np.float32)
+    sh, sv = fn(season[mh]), fn(season[mv])
+    Xh['season'] = sh
+    Xv['season'] = sv
+    print(f'    {tag} | 학습 season 값 {sorted(set(sh.tolist()))} '
+          f'-> 검증 {sorted(set(sv.tolist()))}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_seasonlast2(ctx, **kw):
+    """마지막 두 학습 시즌을 병합 — '최근 체제' 를 두 배 데이터로 배우게 한다."""
+    L = HOLDOUT - 1
+    return _season_map(ctx, lambda s: np.where(s >= L - 1, L - 1, s),
+                       f'{L-1}·{L} 병합')
+
+
+def cand_seasonpair(ctx, **kw):
+    """두 시즌씩 짝지어 3구간으로 (2019-20 / 2021-22 / 2023-24)."""
+    return _season_map(ctx, lambda s: ((s - 2019) // 2) * 2 + 2019, '2시즌 묶음')
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1310,6 +1351,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'ws5c10': cand_ws5c10, 'ws5c30': cand_ws5c30,
          'ws5c300': cand_ws5c300,
          'ws5nocond': cand_ws5nocond,
+         'seasonlast2': cand_seasonlast2, 'seasonpair': cand_seasonpair,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
