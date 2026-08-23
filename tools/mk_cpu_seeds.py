@@ -17,6 +17,7 @@
 import ast, json, os, subprocess, sys
 
 BASE = os.environ.get('CS_BASE', 'aimers_v10w.ipynb')
+PFX = os.environ.get('CS_PREFIX', 'cpu')   # 커널 이름 접두어
 TAGS = {'a': 42, 'b': 202, 'c': 2024}
 PUSH = '--push' in sys.argv
 
@@ -78,13 +79,13 @@ for tag, seed in TAGS.items():
     if 'task_type": "GPU"' in json.dumps(nb):
         sys.exit(f'[{tag}] GPU 문자열이 남아 있다')
 
-    D = f'.kernels/cpu{tag}'
+    D = f'.kernels/{PFX}{tag}'
     os.makedirs(D, exist_ok=True)
     name = f'aimers_cpu{tag}'
     json.dump(nb, open(f'{D}/{name}.ipynb', 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     meta = json.load(open('kernel-metadata.json'))
-    meta.update(id=f'homekeggle/aimers-cpu{tag}', title=f'aimers-cpu{tag}',
+    meta.update(id=f'homekeggle/aimers-{PFX}{tag}', title=f'aimers-{PFX}{tag}',
                 code_file=f'{name}.ipynb', enable_gpu=False)
     json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
     print(f'{D}/{name}.ipynb — seed {seed}, CPU, 문법 OK')

@@ -8,6 +8,7 @@ import numpy as np, pandas as pd
 
 ZIP = sys.argv[1] if len(sys.argv) > 1 else 'out/submit_cpu30.zip'
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 600
+PREFIX = sys.argv[3] if len(sys.argv) > 3 else 'ws_'   # 'wb_' 로 타자측도 검사
 work = tempfile.mkdtemp(prefix='wslive_')
 _NA = ['', 'NaN', 'nan', 'NULL', 'null', 'NA', 'N/A', 'n/a']
 tr = pd.read_csv('data/train.csv', keep_default_na=False, na_values=_NA)
@@ -22,7 +23,7 @@ def run(strip_ws, tag):
     if strip_ws:
         p = os.path.join(d, 'model', 'train_constants.json')
         tc = json.load(open(p, encoding='utf-8'))
-        for k in [k for k in tc if k.startswith('ws_')]:
+        for k in [k for k in tc if k.startswith(PREFIX)]:
             tc.pop(k)
         json.dump(tc, open(p, 'w', encoding='utf-8'), indent=2)
     dd = os.path.join(d, 'data'); os.makedirs(dd, exist_ok=True)
@@ -41,16 +42,16 @@ def run(strip_ws, tag):
 
 print(f'zip {ZIP} | {N}행\n', flush=True)
 a = run(False, 'with_ws')
-print(f'  ws_* 있음  평균 {a.mean():.6f}  std {a.std():.6f}', flush=True)
+print(f'  {PREFIX}* 있음  평균 {a.mean():.6f}  std {a.std():.6f}', flush=True)
 b = run(True, 'without_ws')
-print(f'  ws_* 없음  평균 {b.mean():.6f}  std {b.std():.6f}', flush=True)
+print(f'  {PREFIX}* 없음  평균 {b.mean():.6f}  std {b.std():.6f}', flush=True)
 
 d = (a - b).abs()
 print(f'\n행별 차이: 평균 {d.mean():.6f}  최대 {d.max():.6f}  0이 아닌 행 {(d>1e-9).mean():.1%}')
 print('=' * 60)
 if d.max() < 1e-9:
-    print('❌ 예측이 완전히 같다 — script.py 가 ws_* 를 쓰지 않는다.')
+    print(f'❌ 예측이 완전히 같다 — script.py 가 {PREFIX}* 를 쓰지 않는다.')
     print('   wseason 이 죽은 채로 제출되는 상태다. 절대 올리지 말 것.')
     sys.exit(1)
-print(f'✅ wseason 이 살아 있다 (예측이 실제로 달라진다)')
+print(f'✅ {PREFIX}* 가 살아 있다 (예측이 실제로 달라진다)')
 print('=' * 60)
