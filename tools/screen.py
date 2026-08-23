@@ -1086,6 +1086,60 @@ def cand_seasonpair(ctx, **kw):
     return _season_map(ctx, lambda s: ((s - 2019) // 2) * 2 + 2019, '2시즌 묶음')
 
 
+_CONDSIT = {}
+
+
+def _condsit_cols():
+    """★ 투수 x 상황 조건부 통계 — 주자·이닝·점수차. 주최측이 힌트를 준 축이다.
+
+    문제 소개 자료의 '코치의 네 가지 질문' = 주자 상황 / 볼카운트 / 경기 후반 / 최근 흐름.
+    우리 `cond_*` 는 **카운트와 좌우뿐**이다. 주자·이닝 축은 만든 적이 없다.
+
+    eda32 반쪽 분할 신뢰도 (투수 주효과를 뺀 뒤, 잡음을 걷어낸 신호 std):
+        batter_hand  0.0227   <- cond_ph (기존)
+        점수차 구간   0.0180   = 교정점의 125%
+        base_state   0.0162   = 113%
+        이닝 구간     0.0139   =  97%
+        count_adv    0.0144   <- cond_pc (기존, 리더보드 +27)
+
+    구조는 기존 cond_* 와 완전히 동일하다: 시즌 리그평균으로 디트렌드 -> sum/(count+C)
+    로 0 에 shrink -> 각 행은 **자기 시즌보다 과거** 시즌만으로 인코딩(leak-free).
+
+    ⚠️ 세 축은 서로 겹친다 (점수차 ~ li ~ 주자). 그리고 오늘 '상관이 오르는데 점수는
+    내려가는' 사례를 겪었다 (ws5gt: 상관 +0.260->+0.477, 점수 -17.8).
+    **신뢰도는 대리지표다. 판정은 이 스크리너 실측으로만 한다.**
+    """
+    if _CONDSIT:
+        return _CONDSIT
+    tr = _read_tr(['season', 'pitcher_id', 'inning', 'base_state',
+                   'score_diff_pitcher_team', 'control_success'])
+    lg = tr.groupby('season')['control_success'].transform('mean')
+    tr['dev'] = tr['control_success'] - lg
+    tr['bs'] = tr['base_state'].astype(str)
+    tr['inn'] = np.clip((tr['inning'] - 1) // 3, 0, 2)
+    tr['sd'] = np.clip(np.sign(tr['score_diff_pitcher_team'])
+                       * np.minimum(np.abs(tr['score_diff_pitcher_team']), 4), -4, 4)
+
+    SPEC = {'cond_p_bs': (['pitcher_id', 'bs'], 100.0),
+            'cond_p_inn': (['pitcher_id', 'inn'], 100.0),
+            'cond_p_sd': (['pitcher_id', 'sd'], 100.0)}
+    for name, (keys, C) in SPEC.items():
+        g = tr.groupby(keys + ['season'])['dev'].agg(['sum', 'size']).sort_index()
+        lv = list(range(len(keys)))
+        cum = g.groupby(level=lv).cumsum().groupby(level=lv).shift(1)
+        val = cum['sum'] / (cum['size'] + C)
+        idx = pd.MultiIndex.from_arrays([tr[k] for k in keys] + [tr['season']])
+        _CONDSIT[name] = val.reindex(idx).to_numpy(dtype='float64')
+    print('    투수x상황 조건부 3종 | ' + ' '.join(
+        f'{k}: 결측 {np.isnan(v).mean():.1%}' for k, v in _CONDSIT.items()), flush=True)
+    return _CONDSIT
+
+
+def cand_condsit(ctx, **kw):
+    """★ wseason5 + 투수x(주자·이닝·점수차) 조건부 통계."""
+    return _add(ctx, _wseason5_cols(), _condsit_cols())
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1352,6 +1406,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'ws5c300': cand_ws5c300,
          'ws5nocond': cand_ws5nocond,
          'seasonlast2': cand_seasonlast2, 'seasonpair': cand_seasonpair,
+         'condsit': cand_condsit,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
