@@ -10,6 +10,7 @@
 # **어느 광맥에 남았는지**를 아는 것이 무엇보다 값어치 있다.
 #
 # 오라클 = 그 투수의 2024 전체 성공률 (자기 행 제외). 추론엔 못 쓰지만 **천장**이다.
+import os
 import sys
 import numpy as np
 import pandas as pd
@@ -19,17 +20,20 @@ from sklearn.isotonic import IsotonicRegression
 
 sys.path.insert(0, 'tools')
 import importlib.util
-spec = importlib.util.spec_from_file_location('sc', 'tools/screen.py')
+_sp = next(q for q in ('tools/screen.py', 'screen_lib.py') if os.path.exists(q))
+spec = importlib.util.spec_from_file_location('sc', _sp)
 sc = importlib.util.module_from_spec(spec)
 sys.modules['sc'] = sc
 spec.loader.exec_module(sc)
 
-ITERS = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
-X = pd.read_pickle('cache/X.pkl')
-y = np.load('cache/y.npy')
-season = np.load('cache/season.npy')
-rid = np.load('cache/row_id.npy', allow_pickle=True)
-meta = __import__('json').load(open('cache/meta.json', encoding='utf-8'))
+_a = [x for x in sys.argv[1:] if x.isdigit()]
+ITERS = int(_a[0]) if _a else 1000
+CACHE = os.environ.get('SCREEN_CACHE', 'cache')
+X = pd.read_pickle(f'{CACHE}/X.pkl')
+y = np.load(f'{CACHE}/y.npy')
+season = np.load(f'{CACHE}/season.npy')
+rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+meta = __import__('json').load(open(f'{CACHE}/meta.json', encoding='utf-8'))
 for c in X.columns:
     if X[c].dtype == np.float64:
         X[c] = X[c].astype(np.float32)
@@ -58,7 +62,7 @@ loo = S / np.maximum(N, 1)                    # 반대쪽 절반의 평균 (자�
 loo = np.where(N > 0, loo, np.nan)
 lg = pd.Series(y).groupby(g['s'].to_numpy()).transform('mean').to_numpy()
 ORACLE = {'orc_rate': loo - lg, 'orc_n': N.astype('float64')}
-print(f'오라클: 투수-시즌 {len(agg):,}개 | 표본 중앙 {np.median(N):.0f} | '
+print(f'오라클: 투수-시즌 {agg2.index.droplevel(2).nunique():,}개 | 반쪽 표본 중앙 {np.nanmedian(N):.0f} | '
       f'편차 std {np.nanstd(ORACLE["orc_rate"]):.4f}\n', flush=True)
 
 W = sc._wseason5_cols()
