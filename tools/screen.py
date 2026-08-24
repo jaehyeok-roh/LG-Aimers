@@ -1384,6 +1384,136 @@ def cand_bttm(ctx, **kw):
     return _add(ctx, _wseason5_cols(), _wsbat_cols(), _bttm_cols())
 
 
+_SOFT = {}
+_TM_MEAS = ['rel_speed', 'spin_rate', 'induced_vert_break', 'horz_break',
+            'extension', 'rel_height', 'rel_side', 'zone_speed']
+
+
+def cv_predict_soft(Xh, yh, ysoft, Xv, params, cat, folds=FOLDS):
+    """cv_predict 와 같되 **soft target** 으로 학습한다.
+
+    - 분할은 hard label 로 (StratifiedKFold 는 이진이 필요하다)
+    - 학습은 soft target + CrossEntropy (CatBoost 가 분수 타겟을 받는 손실)
+    - isotonic 보정은 **hard label** 로 맞춘다 (우리가 맞히려는 것은 실제 결과다)
+    """
+    p2 = dict(params)
+    p2['loss_function'] = 'CrossEntropy'
+    p2.pop('eval_metric', None)
+    skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+    out = []
+    for ti, vi in skf.split(Xh, yh):
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], ysoft[ti], verbose=0)
+        rv = m.predict_proba(Xh.iloc[vi])[:, 1]
+        iso = IsotonicRegression(out_of_bounds='clip').fit(rv, yh[vi])
+        out.append(iso.predict(m.predict_proba(Xv)[:, 1]))
+    return np.mean(out, axis=0)
+
+
+def _distill_target(ctx, alpha=1.0, teacher_iters=1000):
+    """★ LUPI 증류 — teacher 가 그 투구의 트랙맨을 보고, student 는 그 확률을 배운다.
+
+    주최측 확인 (aimers_qna.md, seopseopi 08-17 -> DACON.GM 08-19):
+      Q1 "train x trackman 매칭 부분집합에서 teacher(현재 투구 구종·TrackMan 포함)를
+          학습하고 student 는 pre-pitch 만 받아 증류. 제출은 student 만."
+      Q3 "매칭이 **부분적**일 때도 동일하게 허용되는가"
+      A  **"모두 가능합니다."** + "학습 데이터에서 도출된 값에는 제약 사항 없습니다."
+
+    구조:
+      teacher = student 피처 + 그 투구의 측정 8개 + 구종군   (정렬된 행에서만)
+      soft    = alpha * teacher_OOF + (1-alpha) * hard       (정렬 안 된 행은 hard)
+      student = soft 를 CrossEntropy 로 학습, pre-pitch 만 입력
+
+    ⚠️ teacher 는 **OOF** 로 예측해야 한다. 자기가 학습한 행을 그대로 채점하면
+       과적합된 값이 soft target 에 들어가 student 가 잡음을 배운다.
+
+    ⚠️ 이론적 기대는 낮다. teacher 가 보는 정보는 student 피처에 대한 조건부
+       기대값을 바꾸지 않으므로 표적이 같고, 이득 경로는 **분산 감소**뿐인데
+       우리는 in-sample 2.232% ~= OOF 2.21% 로 분산에 묶여 있지 않다.
+       유일한 근거는 teacher/student 예측 상관 0.76 (트리 계열은 0.92~0.97).
+    """
+    ck = (alpha, teacher_iters)
+    if ck in _SOFT:
+        return _SOFT[ck]
+    import glob
+    cand = ['cache/raw/aligned.parquet', 'aligned.parquet',
+            'cache/raw/aligned_slim.parquet', 'aligned_slim.parquet']
+    ap = next((c for c in cand if os.path.exists(c)), None)
+    if ap is None:
+        g = (glob.glob('/kaggle/input/**/aligned_slim.parquet', recursive=True)
+             + glob.glob('/kaggle/input/**/aligned.parquet', recursive=True))
+        if not g:
+            raise SystemExit('aligned(_slim).parquet 을 못 찾음')
+        ap = g[0]
+    print(f'    정렬 파일 {ap}', flush=True)
+    a = pd.read_parquet(ap, columns=['row_id', 'pitch_type_group'] + _TM_MEAS)
+    rid = np.load(f'{CACHE}/row_id.npy', allow_pickle=True)
+    a = a.drop_duplicates(subset=['row_id']).set_index('row_id').reindex(pd.Index(rid))
+    have = a[_TM_MEAS[0]].notna().to_numpy()
+
+    season = np.load(f'{CACHE}/season.npy')
+    y = np.load(f'{CACHE}/y.npy')
+    mh = season <= HOLDOUT - 1
+    Xh = ctx['Xh']
+    yh = ctx['yh']
+    hv = have[mh]                                  # 학습 절반 안에서 정렬된 행
+    print(f'    정렬된 행: 전체 {have.mean():.1%} | 학습절반 {hv.mean():.1%} '
+          f'({hv.sum():,}행)', flush=True)
+
+    # teacher 입력 = student 피처 + privileged
+    P = a.loc[:, _TM_MEAS].to_numpy(dtype='float64')[mh][hv]
+    pt = pd.get_dummies(a['pitch_type_group'].astype(str), prefix='pt'
+                        ).astype('float32').to_numpy()[mh][hv]
+    Xt = Xh[hv].reset_index(drop=True).copy()
+    for i, c in enumerate(_TM_MEAS):
+        Xt['tm_' + c] = P[:, i].astype(np.float32)
+    for j in range(pt.shape[1]):
+        Xt[f'tm_pt{j}'] = pt[:, j]
+    yt = yh[hv]
+
+    tp = dict(ctx['params'])
+    tp.update(iterations=teacher_iters)
+    oof = np.zeros(len(Xt))
+    for ti, vi in StratifiedKFold(3, shuffle=True, random_state=7).split(Xt, yt):
+        m = CatBoostClassifier(**tp)
+        m.fit(Xt.iloc[ti], yt[ti], verbose=0)
+        oof[vi] = m.predict_proba(Xt.iloc[vi])[:, 1]
+    r = float(yt.mean())
+    U = r * (1 - r)
+    tsk = (1 - ((np.clip(oof, 1e-6, 1 - 1e-6) - yt) ** 2).mean() / U) * 100000
+    print(f'    teacher OOF 스킬 {tsk:,.0f} (정렬분 {len(Xt):,}행, 반복 {teacher_iters})',
+          flush=True)
+
+    soft = yh.astype('float64').copy()
+    soft[hv] = alpha * oof + (1.0 - alpha) * yt
+    print(f'    soft target: 평균 {soft.mean():.4f} std {soft.std():.4f} '
+          f'| hard 평균 {yh.mean():.4f}', flush=True)
+    _SOFT[ck] = soft
+    return soft
+
+
+def cand_distill(ctx, **kw):
+    """★ 증류 (alpha=1.0) — 정렬된 행은 teacher 확률, 나머지는 hard."""
+    W, B = _wseason5_cols(), _wsbat_cols()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for D in (W, B):
+        for k, v in D.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    c2 = dict(ctx, Xh=Xh)
+    soft = _distill_target(c2, alpha=float(kw.get('alpha', 1.0)))
+    print(f'    피처 {ctx["Xh"].shape[1]} -> {Xh.shape[1]} (student 는 pre-pitch 만)',
+          flush=True)
+    return cv_predict_soft(Xh, ctx['yh'], soft, Xv, ctx['params'], ctx['cat'])
+
+
+def cand_distill5(ctx, **kw):
+    """증류 alpha=0.5 — teacher 확률과 hard 를 반씩 섞는다."""
+    return cand_distill(ctx, alpha=0.5)
+
+
 def cand_nogt(ctx, **kw):
     """`game_type` 제거.
 
@@ -1656,6 +1786,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'wsbtsk': cand_wsbtsk,
          'prevfix': cand_prevfix,
          'bttm': cand_bttm,
+         'distill': cand_distill, 'distill5': cand_distill5,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
          'seasonbase': cand_seasonbase}
