@@ -1540,6 +1540,692 @@ def cand_nogt(ctx, **kw):
     return cv_predict(Xh, ctx['yh'], Xv, p, cat)
 
 
+
+_TRACKMAN = ['expected_control_difficulty', 'past_fb_speed_mean'] + [
+    f'past_{g}_{m}_std' for g in ('fastball', 'breaking', 'offspeed')
+    for m in ('rel_height', 'rel_side', 'extension', 'spin_rate',
+              'vert_break', 'horz_break')]
+# 바닥 중요도 플래그들. is_same_hand 는 **제외** — 2.59% 로 4위이고, 이건
+# pitcher_hand x batter_hand 인데 max_ctr_complexity=1 이라 CatBoost 가
+# 범주형 2-way 조합을 자동으로 못 만든다. '트리가 스스로 만든다' 규칙의 예외다.
+_LOWFLAGS = ['is_sac_fly_threat', 'is_must_strike_sit', 'is_first_pitch',
+             'is_garbage_time', 'is_risp', 'is_veteran', 'is_self_risp',
+             'is_steal_threat_sit', 'is_pure_starter', 'is_heating_up',
+             'is_rookie', 'is_full_count', 'is_cooling_down',
+             'is_weekend_day_game']
+
+
+def _drop_on_wsboth(ctx, drop, why):
+    """wsboth(= wseason5 + wsbat) 위에서 컬럼군을 빼고 잰다.
+
+    ⚠️ 같은 실행 안에 `wsboth` 를 같이 돌려야 짝지어 읽을 수 있다.
+    """
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    n0 = Xh.shape[1]
+    Xh = Xh.drop(columns=drop, errors='ignore')
+    Xv = Xv.drop(columns=drop, errors='ignore')
+    cat = [c for c in ctx['cat'] if c not in set(drop)]
+    p = dict(ctx['params'])
+    p['cat_features'] = cat
+    print(f'    {why}: 피처 {n0} -> {Xh.shape[1]} ({n0 - Xh.shape[1]}개 제거)', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, p, cat)
+
+
+def cand_notm(ctx, **kw):
+    """트랙맨 20개를 전부 뺀다 (wsboth 위에서).
+
+    근거 네 겹:
+      1. 배포 모델 중요도의 **12.9%** — game_type+season, w_*/wb_* 다음 덩어리.
+      2. eda39 전이 안정성: 19개 전부 상관 -0.20 ~ -0.76.
+         '위험(중요도 x (1-상관))' 상위 16개 중 **12개**가 트랙맨이다.
+      3. 배포 조건에서 77% 가 죽는다 (2026-08-22 실측):
+         같은 시즌 증분 R2 +0.047 -> 1년 묵으면 **+0.011**.
+         트랙맨에 2025 가 없어서 test 는 무조건 1년 묵은 값을 받는다.
+      4. **+3.56 은 v5 에서 잰 값이다.** 오늘 wbc20 이 -2.95 로 CPU 이득을
+         날린 것과 같은 구조 — 트랙맨은 투수 질의 *대리변수*였고, 지금은
+         w_success/wb_success 가 그걸 직접 훨씬 잘 추정한다.
+         (zone_speed 가 -3.35 로 죽은 이유도 rel_speed 와 중복이어서다.)
+
+    ⚠️ 반대 증거: 피처 제거는 20전 1승이다 (월/요일 +4.52 가 유일).
+       그리고 game_type 은 이 표에서 최악인데 제거하면 -46.7 이다.
+       **두 시즌 합의로만 판정한다.**
+    """
+    return _drop_on_wsboth(ctx, _TRACKMAN, '트랙맨 제거')
+
+
+def cand_notmstd(ctx, **kw):
+    """트랙맨 중 **표준편차 18개만** 뺀다 (수준 2개는 남긴다).
+
+    2026-08-22 EDA: 투수-시즌 제구 편차 설명력이 _mean 8개 +0.053 vs
+    _std 8개 +0.025 로 **평균이 표준편차의 2배**다. 우리 20개 중 18개가 std 다.
+    notm 이 음수고 이게 양수면 '수준은 살리고 흔들림만 버려라' 가 답이다.
+    """
+    return _drop_on_wsboth(ctx, [c for c in _TRACKMAN if c.endswith('_std')],
+                           '트랙맨 std 18개 제거')
+
+
+def cand_noflag(ctx, **kw):
+    """중요도 바닥의 step1~13 플래그 14개를 뺀다 (wsboth 위에서).
+
+    합쳐서 중요도 2.0% 뿐이다. claude.md 는 step1~13 파생 51개의 기여가
+    사실상 0 이라고 이미 결론냈다 (피처 구성 감사: 원본 760 -> 현행 795,
+    그 35 는 cond_*(+27) + 트랙맨(+9) 으로 이미 설명된다).
+
+    ⚠️ 기대값은 0 이다. 중요도가 낮다는 것은 '해롭다' 가 아니라 '안 쓴다' 는
+       뜻이고, 안 쓰는 것을 빼면 아무 일도 안 일어난다. 그래도 재는 이유는
+       바닥 14개를 확실히 닫아두기 위해서다.
+    """
+    return _drop_on_wsboth(ctx, _LOWFLAGS, '바닥 플래그 14개 제거')
+
+
+def _addcat_on_wsboth(ctx, build, why):
+    """wsboth(= wseason5 + wsbat) 위에 **범주형** 컬럼을 얹고 잰다.
+
+    ⚠️ 같은 실행에 `wsboth` 를 같이 돌려야 짝지어 읽을 수 있다.
+    ⚠️ CatBoost 는 cat_features 에 float NaN 이 있으면 에러다 (4-4). 전부 str 로 만든다.
+    """
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    n0 = Xh.shape[1]
+    cat = list(ctx['cat'])
+    for name, fn in build.items():
+        for D in (Xh, Xv):
+            D[name] = fn(D).astype(str)
+        cat.append(name)
+    p = dict(ctx['params'])
+    p['cat_features'] = cat
+    ex = {k: int(Xh[k].nunique()) for k in build}
+    print(f'    {why}: 피처 {n0} -> {Xh.shape[1]} | 칸수 {ex}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, p, cat)
+
+
+def _s(D, c):
+    return D[c].astype(str)
+
+
+def cand_nosh(ctx, **kw):
+    """`is_same_hand` 를 뺀다 — **범주형 조합 축이 존재하는지** 를 재는 실험.
+
+    is_same_hand 는 배포 모델 중요도 **2.59%(4위)** 로 pitcher_hand(0.55)와
+    batter_hand(1.19) 둘을 합친 것보다 크다. 그런데 중요도는 '많이 쓴다' 는
+    뜻이지 '점수를 준다' 는 뜻이 아니다 (game_type 은 1위인데 순열 중요도가 -554).
+
+    이 하나가 결정한다:
+      뺐는데 크게 음수  -> 손수 만든 범주형 조합에 값어치가 있다. 더 만든다.
+      뺐는데 0          -> 트리가 두 손 컬럼으로 이미 만들고 있었다. 축 종료.
+                          (step6/13 의 상황 플래그들이 전부 바닥인 것과 일관)
+    """
+    return _drop_on_wsboth(ctx, ['is_same_hand'], 'is_same_hand 제거')
+
+
+def cand_cnt12(ctx, **kw):
+    """정확한 12칸 카운트를 범주형 하나로 준다.
+
+    지금 모델이 카운트에 대해 가진 것:
+      balls_before / strikes_before  (**수치형** — 임계값 분할만 된다)
+      count_advantage 4칸            — 거친 요약. ⚠️ 'None' 이 **0-0 과 3-2 를
+                                       같이 담는다** (4-3). 야구에서 가장 다른
+                                       두 카운트가 한 칸에 들어가 있다.
+      is_full_count / is_first_pitch — 그 두 칸을 따로 빼낸 땜질
+    합쳐서 중요도 3.07% 를 쓰면서도 '0-2 와 2-0 은 다르다' 를 직접 말하지 못한다.
+
+    12칸이면 행당 12만 개라 CTR 추정이 충분히 안정적이다.
+    """
+    return _addcat_on_wsboth(
+        ctx, {'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before')},
+        '정확한 12칸 카운트')
+
+
+def cand_catx(ctx, **kw):
+    """손수 고른 저카디널리티 범주형 조합 셋.
+
+    `ctr2`(모든 2-way 자동 생성) 는 **-5** 였다. 25개에서 300쌍을 만들면
+    대부분 노이즈이고 고카디널리티라 희석된다. 여기서는 **기전이 확실한
+    저카디널리티** 셋만 고른다:
+
+      hand4  (2x2=4)   pitcher_hand x batter_hand. is_same_hand 의 **무손실판** —
+                       지금은 좌투vs우타와 우투vs좌타가 '다름' 한 칸에 뭉개져 있는데
+                       실제 플래툰 효과는 비대칭이다. eda32 에서 batter_hand 축이
+                       신호 std 0.0227 로 상황 축 중 1위였다 (count_adv 의 158%).
+      bs_out (8x3=24)  base_state x outs. 야구의 표준 상태변수(득점 기대값 격자)이고
+                       비가법성이 명확하다 — 3루주자는 2아웃이면 희생플라이가 안 되고,
+                       1루주자는 아웃카운트에 따라 포스 상황이 달라진다.
+                       eda32 에서 base_state 0.0162 (count_adv 의 113%).
+      bs_cnt (8x4=32)  base_state x count_advantage. 주자가 있으면 불리한 카운트에서
+                       거르는 선택지가 생겨 카운트의 의미가 달라진다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'hand4': lambda D: _s(D, 'pitcher_hand') + _s(D, 'batter_hand'),
+        'bs_out': lambda D: _s(D, 'base_state') + '|' + _s(D, 'outs_before'),
+        'bs_cnt': lambda D: _s(D, 'base_state') + '|' + _s(D, 'count_advantage'),
+    }, '범주형 조합 3종')
+
+
+_MIXR = ['fastball', 'breaking', 'offspeed']
+_WSMIX = {}
+
+
+def _wsmix_cols():
+    """**당해 시즌 구종 배합**을 복원한다 — 분해 가능한 마지막 컬럼군.
+
+    asof 컬럼은 19개(비율 16 + 개수 3)이고, 그중 '비율 x 개수 = 누적' 구조라
+    당해 시즌으로 분해되는 것은 열 개다:
+        투수 결과 5 (success/reverse/middle/ball/strike)  -> wseason5, LB +61.72
+        타자 2      (success/middle)                       -> wsbat,    LB +30.11
+        **구종 3    (fastball/breaking/offspeed)           -> 미측정**
+    나머지 6(prev{1,3,5}_game_{success,middle})은 분모가 없어 분해가 불가능하다.
+
+    ★ 분모가 같다: asof_pitcher_pitchmix_n 이 asof_pitcher_n 과 **모든 행에서 동일**
+      (최대차 0). 세 비율 합은 0.9995 = 완전 분할. 즉 wseason5 와 완전히 같은 기계다.
+
+    ★ 움직인다: 같은 투수 인접 시즌 fastball_rate 변화가 std 0.0486,
+      |변화| 중앙 0.0155. 부상/보직 변경/신구종으로 배합은 실제로 해마다 바뀐다.
+
+    ⚠️ 반대 증거 둘:
+      - eda10 대리모형이 이 셋을 **+0** 이라 했다 (투수 5개는 +83 -> 실측 +72.2 로
+        잘 맞혔으므로 이 대리모형은 신뢰도가 있는 편이다).
+      - teacher 실험: **실제로 던진 구종**을 아는 것은 +478 인데 **성향**은 정확히 0.
+        배합은 성향이라 이미 base 에 녹아 있다.
+      다만 그 둘은 '수준(career mix)' 에 대한 이야기이고, 이건 **당해 시즌의 변화**다.
+      그리고 wsbat 이 2024 대리·홀드아웃에서 각각 +10/+3.0 인데 LB 는 +30.11 이었다.
+    """
+    if _WSMIX:
+        return _WSMIX
+    # _read_tr 이 row_id 를 붙이고 캐시 순서로 재정렬까지 한다
+    cols = ['season', 'pitcher_id', 'asof_pitcher_n'] +            [f'asof_pitcher_{k}_rate' for k in _MIXR]
+    tr = _read_tr(cols)
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')
+    first = tr.assign(_n=n).sort_values('_n').groupby(
+        ['pitcher_id', 'season'], sort=False).head(1)
+    key = pd.MultiIndex.from_arrays([tr['pitcher_id'], tr['season']])
+    fi = first.set_index(['pitcher_id', 'season'])
+    n0 = fi['_n'].reindex(key).to_numpy()
+    wn = np.maximum(n - n0, 0.0)
+    out = {}
+    for k in _MIXR:
+        col = f'asof_pitcher_{k}_rate'
+        x = (tr[col].fillna(0).to_numpy(dtype='float64') * n).round()
+        x0 = (fi[col].fillna(0).reindex(key).to_numpy() * n0).round()
+        wx = np.clip(x - x0, 0.0, wn)
+        prior = float(np.nanmean(tr[col].to_numpy(dtype='float64')))
+        rate = (wx + prior * 100.0) / (wn + 100.0)
+        lgk = tr.assign(_v=tr[col]).groupby('season')['_v'].mean()
+        out[f'wm_{k}'] = rate - tr['season'].map(lgk).to_numpy(dtype='float64')
+    _WSMIX.update(out)
+    print('    당해시즌 구종배합 복원: '
+          + ' '.join(f'{k}={np.nanmean(out["wm_"+k]):+.4f}' for k in _MIXR), flush=True)
+    return _WSMIX
+
+
+def cand_wsmix(ctx, **kw):
+    """wsboth + 당해 시즌 구종 배합 3개."""
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _wsmix_cols())
+
+
+def cand_wsmixd(ctx, **kw):
+    """wsboth + 구종 배합의 **커리어 대비 변화량** 3개.
+
+    수준(당해 배합)이 아니라 **변화**(당해 - 커리어)를 준다. teacher 실험이
+    '성향은 0' 이라고 한 것은 수준에 대한 이야기이므로, 변화는 별개일 수 있다.
+    ⚠️ 단 커리어 배합은 그 행에 이미 있으므로(asof_pitcher_{k}_rate)
+       wsmix 가 양수면 이건 한 행 안 뺄셈이라 0 일 가능성이 높다 (diff +7 노이즈).
+    """
+    M = _wsmix_cols()
+    # ⚠️ _read_tr 의 assert 는 cols[0] 의 NaN 을 row_id 매칭 실패로 오판한다.
+    #    구종 비율은 정상적으로 NaN 이 있으므로 결측 없는 컬럼을 앞에 둔다.
+    tr = _read_tr(['season'] + [f'asof_pitcher_{k}_rate' for k in _MIXR])
+    D = {}
+    for k in _MIXR:
+        car = tr[f'asof_pitcher_{k}_rate'].fillna(0).to_numpy(dtype='float64')
+        lg = float(np.nanmean(car))
+        D[f'wmd_{k}'] = (M[f'wm_{k}'] + lg) - car
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), D)
+
+
+_FAILL = ['middle', 'reverse']
+_CONDF = {}
+
+
+def _fail_labels():
+    """투구 단위 실패유형 라벨을 asof 차분으로 복원한다 (train 전용).
+
+    검증(eda40, 147만 행):
+      투수 내 인접 행 asof_pitcher_n 증분 +1        비율 1.000000
+      다섯 라벨 전부 누적개수 차분이 {0,1}           비율 1.000000
+      ★ 복원 success vs control_success 일치율      1.000000
+
+    asof 는 '직전까지' 이므로 행 i 와 i+1 로 **투구 i** 의 라벨이 나온다.
+    성공 행에서 middle/reverse 는 정확히 0 이다 (실패에서만 발생, 완전 중첩).
+
+    ⚠️ 규정: 차분은 **train 에서만** 한다. test 에서 인접 행을 차분하는 것은
+       주최측이 명시적으로 '규칙 위반' 이라 답한 사안이다 (2jin1 08-17).
+       train 유래 값에는 제약이 없다 (DACON.GM 08-19).
+    ⚠️ 행 순서: 반드시 (pitcher_id, asof_pitcher_n) 으로 정렬해야 한다.
+       run_full_pipeline 은 time_idx 로 정렬하고 원복하지 않는다 (claude.md 4-15).
+       pf_* 에서 이 함정에 그대로 빠졌었다.
+    """
+    if _CONDF:
+        return _CONDF
+    tr = _read_tr(['season', 'pitcher_id', 'asof_pitcher_n', 'control_success',
+                   'balls_before', 'strikes_before', 'batter_hand']
+                  + [f'asof_pitcher_{k}_rate' for k in _FAILL])
+    o = np.lexsort((tr['asof_pitcher_n'].to_numpy(), tr['pitcher_id'].to_numpy()))
+    n = tr['asof_pitcher_n'].to_numpy(dtype='float64')[o]
+    g = tr['pitcher_id'].to_numpy()[o]
+    ok = np.r_[(g[:-1] == g[1:]) & (n[1:] - n[:-1] == 1), False]
+    out = {}
+    for k in _FAILL:
+        cum = np.round(tr[f'asof_pitcher_{k}_rate'].fillna(0)
+                       .to_numpy(dtype='float64')[o] * n)
+        d = np.r_[cum[1:] - cum[:-1], np.nan]
+        v = np.where(ok & np.isin(d, [0.0, 1.0]), d, np.nan)
+        back = np.full(len(tr), np.nan)
+        back[o] = v
+        out[k] = back
+    # 검산: success 도 같은 방식으로 복원해 정답과 대조한다
+    ns = tr['asof_pitcher_n'].to_numpy(dtype='float64')[o]
+    cs = np.round(_read_tr(['season', 'asof_pitcher_success_rate'])
+                  ['asof_pitcher_success_rate'].fillna(0)
+                  .to_numpy(dtype='float64')[o] * ns)
+    ds = np.r_[cs[1:] - cs[:-1], np.nan]
+    m = ok & np.isin(ds, [0.0, 1.0])
+    acc = float((ds[m] == tr['control_success'].to_numpy()[o][m]).mean())
+    print(f'    라벨 복원 검산: success 일치율 {acc:.6f} (표본 {m.sum():,})', flush=True)
+    if acc < 0.999:
+        raise RuntimeError(f'복원 검산 실패 {acc:.6f} — 행 순서를 의심할 것')
+    _CONDF['_tr'] = tr
+    _CONDF.update(out)
+    return _CONDF
+
+
+def _condfail_cols(keys=('p', 'pc', 'ph')):
+    """실패유형 라벨로 cond_* 와 **완전히 같은 설계**의 조건부 통계를 만든다.
+
+    설계는 claude.md 2장 '조건부 투수통계' 그대로다:
+      1) 시즌 리그평균을 빼서 디트렌드
+      2) sum / (count + C) 로 0(리그평균)에 shrink  — 표본 적으면 자동으로 0
+      3) **leak-free**: 시즌 S 행은 시즌 < S 데이터로만 인코딩 (2019 행은 NaN)
+    C 값도 동일: pitcher 200 / xカ운트 100 / x좌우 100.
+
+    배포 시에는 cond_* 와 똑같이 룩업 테이블 merge 라 test 다른 행을 안 본다.
+    """
+    F = _fail_labels()
+    tr = F['_tr']
+    sea = tr['season'].to_numpy()
+    ca = _count_adv(tr['balls_before'].to_numpy(), tr['strikes_before'].to_numpy())
+    KEY = {'p': [tr['pitcher_id'].to_numpy()],
+           'pc': [tr['pitcher_id'].to_numpy(), ca],
+           'ph': [tr['pitcher_id'].to_numpy(), tr['batter_hand'].astype(str).to_numpy()]}
+    CC = {'p': 200.0, 'pc': 100.0, 'ph': 100.0}
+    seasons = np.array(sorted(set(sea.tolist())))
+    out = {}
+    for k in _FAILL:
+        v = F[k]
+        lg = pd.Series(v).groupby(sea).transform('mean').to_numpy()
+        dv = v - lg                                   # 디트렌드
+        for kk in keys:
+            idx = pd.MultiIndex.from_arrays(KEY[kk] + [sea]) if False else None
+            df = pd.DataFrame({'d': dv, 's': sea})
+            for i, a in enumerate(KEY[kk]):
+                df[f'k{i}'] = a
+            kc = [c for c in df.columns if c.startswith('k')]
+            gg = df.dropna(subset=['d']).groupby(kc + ['s'])['d'].agg(['sum', 'size'])
+            res = np.full(len(tr), np.nan)
+            for S in seasons[1:]:                     # 시즌 S 는 < S 로만 인코딩
+                past = gg[gg.index.get_level_values('s') < S].groupby(level=kc).sum()
+                cur = df[df['s'] == S]
+                j = cur.set_index(kc).index
+                sm = past['sum'].reindex(j).to_numpy()
+                cn = past['size'].reindex(j).to_numpy()
+                val = np.where(np.isnan(cn), np.nan,
+                               np.nan_to_num(sm) / (np.nan_to_num(cn) + CC[kk]))
+                res[df['s'].to_numpy() == S] = val
+            out[f'cf_{kk}_{k}'] = res
+    print('    실패유형 조건부: ' + ' '.join(
+        f'{c}(결측 {np.isnan(v).mean():.0%})' for c, v in out.items()), flush=True)
+    return out
+
+
+def cand_condfail(ctx, **kw):
+    """wsboth + 실패유형 조건부 통계 6개 (middle/reverse x p/pc/ph).
+
+    ★ 팀원(송도원) 제안. 근거:
+      wseason5(success 포함 5종) +72.2  vs  wseason4(success 제외 4종) +50.5
+      -> 실패유형은 success 없이도 +50.5 를 낸다 = 독립 정보가 많다.
+      그리고 cond_*(success 기준, 투수 x 카운트/좌우)는 리더보드 **+27** 이었다.
+      같은 비율이 조건부에서도 성립하면 두 자릿수가 나온다.
+
+    ⚠️ 반대 증거: wsbsit(투수x상황 3종)은 -18.6/-7.3 으로 두 시즌 합의 기각이었다.
+       다만 그건 success 기준이고 축도 카운트/좌우 밖이었다.
+    ⚠️ 무조건부 수준(w_middle/w_reverse, asof_*_rate)은 **이미 모델에 있다.**
+       여기서 새로운 것은 **조건부** 부분뿐이므로 그 marginal 만 잡힌다.
+    """
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _condfail_cols())
+
+
+def cand_condfailc(ctx, **kw):
+    """위와 같되 **카운트 축만** (cf_pc_middle / cf_pc_reverse 둘).
+
+    6개를 한 번에 넣으면 어느 축이 기여했는지 모른다 (v8 의 -22.35 를 넷에
+    귀속시키지 못했던 실수). 카운트는 eda32 에서 우리가 이미 쓰는 축이고
+    cond_pc 로 검증된 경로다.
+    """
+    return _add(ctx, _wseason5_cols(), _wsbat_cols(), _condfail_cols(keys=('pc',)))
+
+
+def cand_hand4(ctx, **kw):
+    """`pitcher_hand x batter_hand` 4칸만 (is_same_hand 의 무손실판).
+
+    `catx`(hand4+bs_out+bs_cnt)가 2024 +8.3 / 2023 +0.7 로 갈렸다. 셋 중
+    누가 끌었는지 분해한다 (v8 에서 넷을 한 번에 넣어 -22.35 를 귀속 못 한 실수).
+
+    hand4 가 최우선 후보인 이유: `nosh`(is_same_hand 제거)가 **-17.0 / -13.0**
+    두 시즌 합의로 음수다. 즉 이 축은 확실히 실재하고, is_same_hand 는 그 축의
+    **손실 압축**이다 — 좌투vs우타와 우투vs좌타를 '다름' 한 칸에 뭉갠다.
+    실제 플래툰 효과는 비대칭이므로 4칸이 무손실이다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'hand4': lambda D: _s(D, 'pitcher_hand') + _s(D, 'batter_hand')}, 'hand4 단독')
+
+
+def cand_bsx(ctx, **kw):
+    """`base_state x outs` + `base_state x count_advantage` 둘만."""
+    return _addcat_on_wsboth(ctx, {
+        'bs_out': lambda D: _s(D, 'base_state') + '|' + _s(D, 'outs_before'),
+        'bs_cnt': lambda D: _s(D, 'base_state') + '|' + _s(D, 'count_advantage'),
+    }, 'base_state 조합 2종')
+
+
+def cand_cnt12h(ctx, **kw):
+    """`cnt12` + `hand4` — 둘이 쌓이는지 본다 (제출본 후보).
+
+    둘 다 '저카디널리티 x 기전 확실' 조건을 만족하고 서로 다른 축이다
+    (카운트 vs 손). 가법이면 제출본은 이 구성이 된다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+        'hand4': lambda D: _s(D, 'pitcher_hand') + _s(D, 'batter_hand')}, 'cnt12+hand4')
+
+
+def cand_cnth(ctx, **kw):
+    """`cnt12` + `cnt12 x batter_hand` (24칸).
+
+    같은 실행의 `cnt12` 와 비교해 **marginal 만** 읽는다.
+    기전: 같은 카운트라도 좌타/우타 상대 전략이 다르다 (백도어 브레이킹볼,
+    몸쪽 승부 등). `cond_phc`(투수x손x카운트)는 **투수 수준**이라 리그 수준의
+    손x카운트 상호작용은 아직 어디에도 없다.
+    24칸이면 행당 6만 개라 CTR 이 안정적이다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+        'cnt_bh': lambda D: (_s(D, 'balls_before') + '-' + _s(D, 'strikes_before')
+                             + '|' + _s(D, 'batter_hand')),
+    }, 'cnt12 + cnt12xbatter_hand')
+
+
+def cand_cntg(ctx, **kw):
+    """`cnt12` + `cnt12 x game_type` (24칸).
+
+    F(퓨처스)는 2023 에 판정 체제가 바뀌었고(.7087 -> .4729) 카운트별 스트라이크
+    존 운용이 R 과 다를 수 있다. `game_type` 은 중요도 1위(9.13%)인데 순열 중요도는
+    -554 로 최악이다 — 모델이 이 피처를 **쓰는 방식**이 나쁘다는 뜻이므로,
+    쓸 방향을 명시적으로 좁혀주는 조합이 도움이 될 수 있다.
+    ⚠️ `nogt`(제거)는 -46.7 이었다. 제거가 아니라 **정제**가 이 후보의 논지다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+        'cnt_gt': lambda D: (_s(D, 'balls_before') + '-' + _s(D, 'strikes_before')
+                             + '|' + _s(D, 'game_type')),
+    }, 'cnt12 + cnt12xgame_type')
+
+
+_AUXC = {}
+
+
+def _aux_targets():
+    """투구 단위 실패유형 라벨 (eda40/41). 배타적이 아니므로 2비트로 다룬다.
+
+    교차표(147만 행): success=1 에서 middle/reverse 가 1인 행은 **0개** — 완전 중첩.
+    다만 middle 과 reverse 는 **동시에 1일 수 있다** (실패의 7.2%).
+    포수가 바깥에 앉았는데 가운데-몸쪽으로 몰리면 둘 다다.
+    따라서 wild = 실패 & !middle & !reverse (1-s-m-r 은 틀렸다).
+
+    유형별 드리프트가 서로 반대다 (2019->2024, R 전용, 실패율 +0.0598):
+        middle +0.0484 | reverse +0.0543 | both +0.0015 | wild **-0.0414**
+    총 변동 0.144 가 순변동 0.060 을 만든다 — 이진 타겟이 2.4배를 가린다.
+    투수 수준 신뢰도: reverse **0.941** > success 0.911 (신호 크기는 102%).
+    """
+    if _AUXC:
+        return _AUXC
+    F = _fail_labels()
+    tr = F['_tr']
+    y = tr['control_success'].to_numpy(dtype='float64')
+    m, r = F['middle'], F['reverse']
+    good = ~(np.isnan(m) | np.isnan(r))
+    _AUXC['middle'] = np.where(good, m, np.nan)
+    _AUXC['reverse'] = np.where(good, r, np.nan)
+    _AUXC['wild'] = np.where(good, (1 - y) * (1 - np.nan_to_num(m)) * (1 - np.nan_to_num(r)), np.nan)
+    # 5분류: 0 성공 / 1 몰림만 / 2 반대만 / 3 둘다 / 4 크게벗어남
+    cls = np.where(y == 1, 0,
+                   np.where((m == 1) & (r == 1), 3,
+                            np.where(m == 1, 1, np.where(r == 1, 2, 4))))
+    _AUXC['cls'] = np.where(good, cls, np.nan)
+    print('    보조 타겟: ' + ' '.join(
+        f'{k}={np.nanmean(_AUXC[k]):.4f}' for k in ('middle', 'reverse', 'wild'))
+        + f' | 결측 {np.isnan(_AUXC["cls"]).mean():.2%}', flush=True)
+    return _AUXC
+
+
+def _stack_aux(Xh, Xv, tgt, params, cat, folds=3, iters=300):
+    """보조 타겟 예측을 **교차적합**해서 피처로 만든다.
+
+    ⚠️ `reverse=1 => success=0` 이므로 in-sample 적합은 타겟을 통째로 흘린다.
+       학습 절반은 반드시 out-of-fold 값을, 검증 절반은 폴드 평균을 받아야 한다.
+    ⚠️ 보조 라벨이 NaN 인 행(투수의 마지막 투구 등)은 학습에서 빼고 예측만 받는다.
+    """
+    p2 = dict(params)
+    p2['iterations'] = iters
+    p2.pop('early_stopping_rounds', None)
+    oof = np.full(len(Xh), np.nan)
+    vp = np.zeros(len(Xv))
+    fit = np.isfinite(tgt)
+    skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=7)
+    for ti, vi in skf.split(Xh, np.nan_to_num(tgt, nan=0.0).astype(int)):
+        ti = ti[fit[ti]]
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], tgt[ti].astype(int), verbose=0)
+        oof[vi] = m.predict_proba(Xh.iloc[vi])[:, 1]
+        vp += m.predict_proba(Xv)[:, 1] / folds
+    return oof, vp
+
+
+def cand_auxrev(ctx, **kw):
+    """wsboth + 교차적합 P(reverse|X) 하나를 피처로.
+
+    `reverse` 를 고른 이유: 투수 수준 신뢰도가 **0.941 로 success(0.911)보다 높고**
+    신호 크기도 102% 다 (eda41). 이 데이터에서 가장 안정적인 투수 특성이다.
+    이진 y 만 보는 본 모델은 P(reverse|X) 를 **배울 수 없다** — 그 라벨을 못 보니까.
+    ⚠️ 이득 경로는 '더 나은 기저함수'(추정 효율)다. 우리는 거기 안 묶여 있으므로
+       (in-sample 2.232% ~= OOF 2.21%) 기대값을 낮게 잡을 것.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    o, v = _stack_aux(Xh, Xv, A['reverse'][mh], ctx['params'], ctx['cat'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+    print(f'    aux_rev: OOF 평균 {np.nanmean(o):.4f} / 검증 평균 {v.mean():.4f} '
+          f'| 실제 reverse 율 {np.nanmean(A["reverse"][mh]):.4f}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_aux3(ctx, **kw):
+    """wsboth + P(reverse) + P(middle) + P(wild) 셋 다."""
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    for t in ('reverse', 'middle', 'wild'):
+        o, v = _stack_aux(Xh, Xv, A[t][mh], ctx['params'], ctx['cat'])
+        Xh['aux_' + t] = o.astype(np.float32)
+        Xv['aux_' + t] = v.astype(np.float32)
+    print(f'    보조 피처 3개 추가 -> 피처 {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_multicls(ctx, **kw):
+    """타겟을 5분류로 바꾸고 '성공' 클래스 확률을 쓴다 (구조판).
+
+    0 성공 / 1 몰림만 / 2 반대만 / 3 둘다 / 4 크게벗어남.
+    유형별 드리프트가 서로 반대이므로(middle +0.048 vs wild -0.041) 이진 타겟은
+    상쇄된 순변동만 본다. 나누면 세 과정이 분리된다.
+    ⚠️ isotonic 은 이진 y 로 적합한다 (채점이 P(success) 니까).
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    cls = A['cls'][mh]
+    yh = ctx['yh']
+    fit = np.isfinite(cls)
+    p2 = dict(ctx['params'])
+    p2['loss_function'] = 'MultiClass'
+    p2['eval_metric'] = 'MultiClass'
+    p2.pop('early_stopping_rounds', None)
+    out = []
+    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    for ti, vi in skf.split(Xh, yh):
+        ti = ti[fit[ti]]
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], cls[ti].astype(int), verbose=0)
+        ci = list(m.classes_).index(0)
+        rv = m.predict_proba(Xh.iloc[vi])[:, ci]
+        iso = IsotonicRegression(out_of_bounds='clip').fit(rv, yh[vi])
+        out.append(iso.predict(m.predict_proba(Xv)[:, ci]))
+    print(f'    5분류 학습 완료 (성공 클래스 인덱스 {ci})', flush=True)
+    return np.mean(out, axis=0)
+
+
+def cand_auxperm(ctx, **kw):
+    """`auxrev` 의 **대조군** — reverse 라벨을 무작위로 섞고 똑같이 돌린다.
+
+    로컬 2024 에서 auxrev 가 wsboth 894 -> **930 (+36)** 이 나왔다.
+    wsbat 이후 최대치라 먼저 누수를 의심해야 한다 (`reverse=1 => success=0`).
+
+    라벨을 섞으면 보조 모델이 배울 게 없으므로 aux 피처는 사실상 상수가 된다.
+      기준선 근처(~894)  -> auxrev 의 +36 은 **진짜 신호**다.
+      여전히 크게 양수    -> 파이프라인 어딘가에 구조적 누수가 있다.
+
+    ⚠️ 섞는 것은 **학습 절반 안에서만**. 검증 절반은 애초에 라벨을 안 쓴다.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    t = A['reverse'][mh].copy()
+    rng = np.random.default_rng(123)
+    rng.shuffle(t)                      # 라벨만 섞는다 (X 는 그대로)
+    o, v = _stack_aux(Xh, Xv, t, ctx['params'], ctx['cat'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+    print(f'    [대조군] 섞은 라벨 | OOF 표준편차 {np.nanstd(o):.5f} '
+          f'(auxrev 진본은 훨씬 클 것) / 검증 평균 {v.mean():.4f}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_cnt12b(ctx, **kw):
+    """`cnt12` + `bs_out` + `bs_cnt` — 범주형 축의 제출 후보 구성.
+
+    분해 결과 (2023): bsx **+16.2** / cnt12 +3.4 / hand4 **-11.4**.
+    `catx`(hand4+bsx)가 2023 에서 +0.7 로 무너진 것은 hand4 가 상쇄했기 때문이다
+    (-11.4 + 16.2 = +4.8, 실측 +0.7). hand4 를 빼고 둘만 합친다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+        'bs_out': lambda D: _s(D, 'base_state') + '|' + _s(D, 'outs_before'),
+        'bs_cnt': lambda D: _s(D, 'base_state') + '|' + _s(D, 'count_advantage'),
+    }, 'cnt12 + base_state 조합 2종')
+
+
+def cand_catall(ctx, **kw):
+    """범주형 조합 넷 전부: cnt12 + hand4 + bs_out + bs_cnt.
+
+    분해 결과 (홀드아웃 대비, 2024 / 2023):
+        cnt12  +8.3 / +3.4     hand4  +6.5 / -11.4
+        bsx    +3.8 / +16.2    cnt12h +19.0 / +4.3    catx +8.3 / +0.7
+    hand4 는 **단독으로는 뒤집히는데 cnt12 와 함께면 안전하다** (증분 +10.7 / +0.9).
+    넷을 다 넣었을 때 가법인지 상쇄인지가 제출 구성을 정한다.
+    ⚠️ ctr2(모든 2-way 자동 생성)는 -5 였다. 칸이 늘수록 CTR 추정이 나빠지므로
+       무한정 더하면 안 된다 — 이게 그 한계를 재는 실험이다.
+    """
+    return _addcat_on_wsboth(ctx, {
+        'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+        'hand4': lambda D: _s(D, 'pitcher_hand') + _s(D, 'batter_hand'),
+        'bs_out': lambda D: _s(D, 'base_state') + '|' + _s(D, 'outs_before'),
+        'bs_cnt': lambda D: _s(D, 'base_state') + '|' + _s(D, 'count_advantage'),
+    }, '범주형 조합 4종 전부')
+
+
+def cand_auxcnt(ctx, **kw):
+    """`auxrev` + `cnt12` + `hand4` — 두 축이 쌓이는지 (제출 구성 후보).
+
+    두 축은 기전이 완전히 다르다:
+      auxrev  라벨 채널 — 본 모델이 볼 수 없는 P(reverse|X) 를 기저함수로 준다
+      cnt12h  범주형 조합 — 트리가 만들 수 있지만 비싼 상호작용을 CTR 하나로 준다
+    가법이면 제출본은 이 구성이다.
+    ⚠️ auxrev 의 +36 은 **아직 대조군(auxperm) 통과 전**이다. 누수로 판명되면 폐기.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    o, v = _stack_aux(Xh, Xv, A['reverse'][mh], ctx['params'], ctx['cat'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+    cat = list(ctx['cat'])
+    for name, fn in {
+            'cnt12': lambda D: _s(D, 'balls_before') + '-' + _s(D, 'strikes_before'),
+            'hand4': lambda D: _s(D, 'pitcher_hand') + _s(D, 'batter_hand')}.items():
+        Xh[name] = fn(Xh).astype(str)
+        Xv[name] = fn(Xv).astype(str)
+        cat.append(name)
+    p = dict(ctx['params'])
+    p['cat_features'] = cat
+    print(f'    aux + 범주형 2종 -> 피처 {Xh.shape[1]}', flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, p, cat)
+
 def cand_dropoldF(ctx, **kw):
     """체제 변화 **이전**의 F 행만 학습에서 뺀다 (game_type 은 유지).
 
@@ -1789,7 +2475,17 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'distill': cand_distill, 'distill5': cand_distill5,
          'bothgt': cand_bothgt,
          'opt254': cand_opt254, 'opt254c1': cand_opt254c1,
-         'seasonbase': cand_seasonbase}
+         'seasonbase': cand_seasonbase,
+         'notm': cand_notm, 'notmstd': cand_notmstd,
+         'noflag': cand_noflag,
+         'nosh': cand_nosh, 'cnt12': cand_cnt12, 'catx': cand_catx,
+         'wsmix': cand_wsmix, 'wsmixd': cand_wsmixd,
+         'condfail': cand_condfail, 'condfailc': cand_condfailc,
+         'hand4': cand_hand4, 'bsx': cand_bsx, 'cnt12h': cand_cnt12h,
+         'cnth': cand_cnth, 'cntg': cand_cntg,
+         'auxrev': cand_auxrev, 'aux3': cand_aux3,
+         'multicls': cand_multicls, 'auxperm': cand_auxperm,
+         'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt}
 
 
 def main():
