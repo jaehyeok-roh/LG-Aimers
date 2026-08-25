@@ -84,12 +84,12 @@ def _recover_reverse(df):
     return out["reverse"]
 
 
-def _fit_aux(Xh, tgt, Xv, tag):
+def _fit_aux(Xh, tgt, Xv, tag, params=None):
     """보조 모델을 교차적합한다. 학습행은 OOF, 예측행은 폴드 평균.
 
     ⚠️ reverse=1 이면 success=0 이므로 in-sample 적합은 타겟을 통째로 흘린다.
     """
-    _p = dict(BEST_PARAMS)
+    _p = dict(BEST_PARAMS if params is None else params)
     _p["iterations"] = AUX_ITERS
     _p.pop("early_stopping_rounds", None)
     _p["eval_metric"] = "Logloss"
@@ -113,10 +113,22 @@ def _fit_aux(Xh, tgt, Xv, tag):
 _rev = _recover_reverse(df_processed)
 print("  reverse 율 %.4f | 결측 %.2f%%" % (np.nanmean(_rev), 100 * np.isnan(_rev).mean()))
 
+# ⚠️ 보조 모델에서 season / game_type 을 **뺀다** (2026-08-25 리더보드 진단).
+#    auxrev v1 은 스크리너 +40.2 인데 LB +4.14 (전달률 0.10) 였다. 원인은
+#    보조 모델의 중요도 절반이 season(15.1%) x game_type(15.9%) = 드리프트였고,
+#    season 경계가 2023.5 에서 끝나(eda31) 2024 수준에 고정된 값을 2025 에 뱉기
+#    때문이다. 빼고 재니 2023 이 **-18.1 -> +55.0** 으로 뒤집혔다 (2024 +22.5).
+#    본 모델은 season/game_type 을 직접 갖고 있으므로 잃는 것이 없다.
+AUX_DROP = ["season", "game_type"]
+_aux_cols = [c for c in feature_cols if c not in AUX_DROP]
+_aux_params = dict(BEST_PARAMS)
+_aux_params["cat_features"] = [c for c in cat_features if c not in AUX_DROP]
+print("  보조 모델 피처 %d개 (제거: %s)" % (len(_aux_cols), AUX_DROP))
+
 # 배포용: 전체 train 으로 교차적합. 모델 3개를 zip 에 실어 추론 때 평균한다.
 with open("model/aux_features.json", "w") as f:
-    json.dump(list(feature_cols), f)
-_oof, _, _auxms = _fit_aux(X_full, _rev, None, "배포")
+    json.dump(_aux_cols, f)
+_oof, _, _auxms = _fit_aux(X_full[_aux_cols], _rev, None, "배포", _aux_params)
 for _k, _m in enumerate(_auxms):
     _m.save_model("model/aux_rev_%d.cbm" % _k)
 
@@ -124,8 +136,9 @@ for _k, _m in enumerate(_auxms):
 # 이걸 안 하면 오프셋 셀이 낙관적으로 측정돼 재중심화 상수가 어긋난다 (134점짜리다).
 _hm = (df_processed["season"] <= HOLDOUT_SEASON - 1).to_numpy()
 _vm = (df_processed["season"] == HOLDOUT_SEASON).to_numpy()
-_o2, _v2, _ = _fit_aux(X_full[_hm].reset_index(drop=True), _rev[_hm],
-                       X_full[_vm].reset_index(drop=True), "오프셋용")
+_o2, _v2, _ = _fit_aux(X_full.loc[_hm, _aux_cols].reset_index(drop=True), _rev[_hm],
+                       X_full.loc[_vm, _aux_cols].reset_index(drop=True),
+                       "오프셋용", _aux_params)
 AUX_HO = np.full(len(X_full), np.nan)
 AUX_HO[_hm] = _o2
 AUX_HO[_vm] = _v2

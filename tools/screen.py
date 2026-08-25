@@ -1794,6 +1794,9 @@ def cand_wsmixd(ctx, **kw):
 
 
 _FAILL = ['middle', 'reverse']
+# 보조 타겟으로 쓸 수 있는 라벨 전부. eda41 투수 수준 신호 크기(success=100%):
+#   reverse 102% | ball 61% | strike 55% | middle 45% | wild 42%
+_AUXL = ['middle', 'reverse', 'ball', 'strike']
 _CONDF = {}
 
 
@@ -1819,13 +1822,13 @@ def _fail_labels():
         return _CONDF
     tr = _read_tr(['season', 'pitcher_id', 'asof_pitcher_n', 'control_success',
                    'balls_before', 'strikes_before', 'batter_hand']
-                  + [f'asof_pitcher_{k}_rate' for k in _FAILL])
+                  + [f'asof_pitcher_{k}_rate' for k in _AUXL])
     o = np.lexsort((tr['asof_pitcher_n'].to_numpy(), tr['pitcher_id'].to_numpy()))
     n = tr['asof_pitcher_n'].to_numpy(dtype='float64')[o]
     g = tr['pitcher_id'].to_numpy()[o]
     ok = np.r_[(g[:-1] == g[1:]) & (n[1:] - n[:-1] == 1), False]
     out = {}
-    for k in _FAILL:
+    for k in _AUXL:
         cum = np.round(tr[f'asof_pitcher_{k}_rate'].fillna(0)
                        .to_numpy(dtype='float64')[o] * n)
         d = np.r_[cum[1:] - cum[:-1], np.nan]
@@ -2226,6 +2229,94 @@ def cand_auxcnt(ctx, **kw):
     print(f'    aux + 범주형 2종 -> 피처 {Xh.shape[1]}', flush=True)
     return cv_predict(Xh, ctx['yh'], Xv, p, cat)
 
+
+def cand_auxrevns(ctx, **kw):
+    """`auxrev` 에서 보조 모델의 **season / game_type 을 제거**한 판.
+
+    리더보드 실측 진단(2026-08-25): auxrev 는 스크리너 +40.2 인데 LB **+4.14**
+    (전달률 0.10). 원인은 보조 모델이 무엇을 보느냐였다:
+        game_type 15.94% | season 15.13% | w_reverse 14.10%
+        wb_success 5.74% | asof_pitcher_reverse_rate 4.38%
+    **절반이 season x game_type(드리프트)** 이고 나머지는 본 모델이 이미 가진 피처다.
+    `season` 경계가 2023.5 에서 끝나므로(eda31) aux_rev 는 **2024 수준에 고정된 값**을
+    2025 에 뱉는다 -- 외삽이 안 된다.
+
+    그 둘을 보조 모델에서 빼면 aux_rev 가 드리프트 대신 **순수한 투수·상황 reverse
+    성향**만 담는다. 본 모델은 season/game_type 을 직접 갖고 있으므로 잃는 것이 없다.
+    ⚠️ 남는 것도 결국 w_reverse 의 압축이라 기대는 낮다. 두 시즌 합의로만 판정할 것.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    drop = [c for c in ('season', 'game_type') if c in Xh.columns]
+    ap = dict(ctx['params'])
+    ap['cat_features'] = [c for c in ctx['cat'] if c not in drop]
+    print(f'    보조 모델에서 제거: {drop}', flush=True)
+    o, v = _stack_aux(Xh.drop(columns=drop), Xv.drop(columns=drop),
+                      A['reverse'][mh], ap, ap['cat_features'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+    print(f'    aux_rev(ns): OOF 평균 {np.nanmean(o):.4f} / 검증 평균 {v.mean():.4f}',
+          flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def _auxns(ctx, targets):
+    """보조 타겟 여러 개를 **season / game_type 없이** 교차적합해 피처로 얹는다.
+
+    ★ 2026-08-25 리더보드 실측이 이 설계를 확정했다:
+        auxrev  (season 포함)  스크리너 +40.2 -> LB **+4.14**  전달률 0.10
+        auxrevns(season 제거)  스크리너 +22.5 -> LB **+13.50** 전달률 **0.60**
+      홀드아웃 숫자는 절반인데 리더보드는 3배다. `season` 분기 경계가 2023.5 에서
+      끝나므로(eda31) season 을 재료로 만든 파생피처는 **학습 시대에 얼어붙은 값**을
+      2025 에 뱉는다. 2023 홀드아웃에서 auxrev 가 -18.1 이었던 것이 그 증거다.
+
+    eda41 투수 수준 신호 크기 (success=100%):
+        reverse 102% | ball 61% | strike 55% | middle 45% | wild 42%
+    지금 배포본은 reverse 하나만 쓴다.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    drop = [c for c in ('season', 'game_type') if c in Xh.columns]
+    ap = dict(ctx['params'])
+    ap['cat_features'] = [c for c in ctx['cat'] if c not in drop]
+    Ah, Av = Xh.drop(columns=drop), Xv.drop(columns=drop)
+    for t in targets:
+        o, v = _stack_aux(Ah, Av, A[t][mh], ap, ap['cat_features'])
+        Xh['aux_' + t] = o.astype(np.float32)
+        Xv['aux_' + t] = v.astype(np.float32)
+        print(f'    aux_{t}: OOF {np.nanmean(o):.4f} / 검증 {v.mean():.4f} '
+              f'(실제 {np.nanmean(A[t][mh]):.4f})', flush=True)
+    print(f'    보조 {len(targets)}개 -> 피처 {Xh.shape[1]} (보조모델에서 {drop} 제거)',
+          flush=True)
+    return cv_predict(Xh, ctx['yh'], Xv, ctx['params'], ctx['cat'])
+
+
+def cand_auxns3(ctx, **kw):
+    """reverse + ball + strike (신호 102% / 61% / 55%). 현행 배포본 = reverse 하나."""
+    return _auxns(ctx, ['reverse', 'ball', 'strike'])
+
+
+def cand_auxns4(ctx, **kw):
+    """reverse + ball + strike + middle (넷 다)."""
+    return _auxns(ctx, ['reverse', 'ball', 'strike', 'middle'])
+
+
+def cand_auxnsb(ctx, **kw):
+    """reverse + ball 둘만 — 신호 상위 두 개. 셋이 희석되면 이게 답이다."""
+    return _auxns(ctx, ['reverse', 'ball'])
+
 def cand_dropoldF(ctx, **kw):
     """체제 변화 **이전**의 F 행만 학습에서 뺀다 (game_type 은 유지).
 
@@ -2485,7 +2576,9 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'cnth': cand_cnth, 'cntg': cand_cntg,
          'auxrev': cand_auxrev, 'aux3': cand_aux3,
          'multicls': cand_multicls, 'auxperm': cand_auxperm,
-         'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt}
+         'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt, 'auxrevns': cand_auxrevns,
+         'auxns3': cand_auxns3, 'auxns4': cand_auxns4,
+         'auxnsb': cand_auxnsb}
 
 
 def main():
