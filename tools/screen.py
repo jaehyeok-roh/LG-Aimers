@@ -2019,6 +2019,11 @@ def _aux_targets():
     _AUXC['middle'] = np.where(good, m, np.nan)
     _AUXC['reverse'] = np.where(good, r, np.nan)
     _AUXC['wild'] = np.where(good, (1 - y) * (1 - np.nan_to_num(m)) * (1 - np.nan_to_num(r)), np.nan)
+    # ball / strike 도 같은 차분으로 복원된다 (eda41 신호 61% / 55%).
+    for _k in ('ball', 'strike'):
+        _v = F.get(_k)
+        if _v is not None:
+            _AUXC[_k] = np.where(np.isfinite(_v), _v, np.nan)
     # 5분류: 0 성공 / 1 몰림만 / 2 반대만 / 3 둘다 / 4 크게벗어남
     cls = np.where(y == 1, 0,
                    np.where((m == 1) & (r == 1), 3,
@@ -2317,6 +2322,61 @@ def cand_auxnsb(ctx, **kw):
     """reverse + ball 둘만 — 신호 상위 두 개. 셋이 희석되면 이게 답이다."""
     return _auxns(ctx, ['reverse', 'ball'])
 
+
+def cand_mcaux(ctx, **kw):
+    """`multicls`(타겟 5분류) + `auxrevns`(보조 피처) — 쌓이는지 본다.
+
+    둘은 기전이 완전히 다르다:
+      multicls  타겟을 5분류로 (성공/몰림만/반대만/둘다/크게벗어남).
+                유형별 드리프트가 서로 반대라(middle +0.048 vs wild -0.041)
+                이진 타겟이 순변동만 본다 -- 나누면 세 과정이 분리된다.
+      auxrevns  P(reverse|X) 를 피처로. 본 모델이 못 보는 라벨을 기저함수로 준다.
+
+    실측 (wsboth 기준, 2024 / 2023):
+        multicls  +35.7 / +37.8   <- 두 시즌 거의 동일. 지금까지 가장 안정적
+        auxrevns  +22.5 / +55.0   <- 배포 완료 (LB +13.50)
+    가법이면 배포 학습(GPU 6~8시간)을 걸 값어치가 있다.
+
+    ⚠️ multicls 는 5분류라 학습이 이진의 5배다. 스크리너 한 후보에 396분 걸렸다.
+    ⚠️ isotonic 은 **이진 y** 로 적합한다 (채점이 P(success) 니까).
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    drop = [c for c in ('season', 'game_type') if c in Xh.columns]
+    ap = dict(ctx['params'])
+    ap['cat_features'] = [c for c in ctx['cat'] if c not in drop]
+    o, v = _stack_aux(Xh.drop(columns=drop), Xv.drop(columns=drop),
+                      A['reverse'][mh], ap, ap['cat_features'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+    print(f'    aux_rev(ns) 완료 -> 5분류 학습 시작 (오래 걸린다)', flush=True)
+
+    cls = A['cls'][mh]
+    yh = ctx['yh']
+    fit = np.isfinite(cls)
+    p2 = dict(ctx['params'])
+    p2['loss_function'] = 'MultiClass'
+    p2['eval_metric'] = 'MultiClass'
+    p2.pop('early_stopping_rounds', None)
+    out = []
+    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    for _f, (ti, vi) in enumerate(skf.split(Xh, yh)):
+        ti = ti[fit[ti]]
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], cls[ti].astype(int), verbose=0)
+        ci = list(m.classes_).index(0)
+        rv = m.predict_proba(Xh.iloc[vi])[:, ci]
+        iso = IsotonicRegression(out_of_bounds='clip').fit(rv, yh[vi])
+        out.append(iso.predict(m.predict_proba(Xv)[:, ci]))
+        print(f'    5분류 fold {_f+1}/{FOLDS}', flush=True)
+    return np.mean(out, axis=0)
+
 def cand_dropoldF(ctx, **kw):
     """체제 변화 **이전**의 F 행만 학습에서 뺀다 (game_type 은 유지).
 
@@ -2578,7 +2638,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'multicls': cand_multicls, 'auxperm': cand_auxperm,
          'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt, 'auxrevns': cand_auxrevns,
          'auxns3': cand_auxns3, 'auxns4': cand_auxns4,
-         'auxnsb': cand_auxnsb}
+         'auxnsb': cand_auxnsb, 'mcaux': cand_mcaux}
 
 
 def main():
