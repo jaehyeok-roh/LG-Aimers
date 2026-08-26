@@ -51,7 +51,10 @@ AUX_ITERS = 300
 AUX_FOLDS = 3
 
 
-AUX_TARGETS = ["reverse", "ball"]   # eda41 신호 크기: reverse 102% / ball 61%
+AUX_TARGETS = __AUX_TARGETS__
+# eda41 신호 크기: reverse 102% / ball 61% / strike 55% / middle 45%
+# ⚠️ 2026-08-25 리더보드: reverse 에 ball 을 더해도 **+0.002** (= 0).
+#    보조 타겟 축은 reverse 하나에서 닫혔다.
 
 
 def _recover_labels(df, keys):
@@ -172,6 +175,12 @@ print("  selected_features.json 재기록 (%d개)" % len(feature_cols))
 # =========================================================================
 
 '''
+# ⚠️ 빌드 **시점**에 값을 박는다. 노트북 안에서 os.environ 을 읽으면 캐글에서
+#    AR_TARGETS 가 없어 기본값으로 돌아간다.
+_TGTS = [t for t in os.environ.get('AR_TARGETS', 'reverse,ball').split(',') if t]
+AUXBLOCK = AUXBLOCK.replace('__AUX_TARGETS__', repr(_TGTS))
+print('보조 타겟:', _TGTS)
+
 # ⚠️ claude.md 4-12 — 앵커는 반드시 BEST_PARAMS 가 **완성된 뒤**여야 한다.
 #    _fit_aux 가 BEST_PARAMS 를 쓰는데 그건 셀 16 **끝**에서 만들어진다.
 #    앞에 넣었다가 NameError 로 GPU 35분을 태웠다 (2026-08-24 v1).
