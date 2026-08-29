@@ -28,7 +28,7 @@ import os
 import sys
 
 BASE = os.environ.get('BSX_BASE', 'aimers_v10wzc.ipynb')
-OUT = os.environ.get('BSX_OUT', 'aimers_v10wzb.ipynb')
+OUT = os.environ.get('BSX_OUT', 'experiments/v10w/aimers_v10wzb.ipynb')
 ZIP = os.environ.get('BSX_ZIP', 'submit_v10wzb.zip')
 
 nb = json.load(open(BASE, encoding='utf-8'))

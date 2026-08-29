@@ -29,8 +29,8 @@ import json
 import os
 import sys
 
-BASE = os.environ.get('PN_BASE', 'aimers_v10wz.ipynb')
-OUT = os.environ.get('PN_OUT', 'aimers_v10wpn.ipynb')
+BASE = os.environ.get('PN_BASE', 'experiments/v10w/aimers_v10wz.ipynb')
+OUT = os.environ.get('PN_OUT', 'experiments/v10w/aimers_v10wpn.ipynb')
 ZIP = os.environ.get('PN_ZIP', 'submit_v10wpn.zip')
 
 nb = json.load(open(BASE, encoding='utf-8'))

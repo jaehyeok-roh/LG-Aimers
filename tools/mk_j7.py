@@ -27,7 +27,7 @@ import os
 import sys
 
 BASE = os.environ.get('J7_BASE', 'aimers_v10wzc.ipynb')
-OUT = os.environ.get('J7_OUT', 'aimers_v10wj7.ipynb')
+OUT = os.environ.get('J7_OUT', 'experiments/v10w/aimers_v10wj7.ipynb')
 ZIP = os.environ.get('J7_ZIP', 'submit_v10wj7.zip')
 
 nb = json.load(open(BASE, encoding='utf-8'))

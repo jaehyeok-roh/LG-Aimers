@@ -30,7 +30,7 @@ import os
 import sys
 
 BASE = os.environ.get('MON_BASE', 'aimers_v10wzc.ipynb')
-OUT = os.environ.get('MON_OUT', 'aimers_v10wm.ipynb')
+OUT = os.environ.get('MON_OUT', 'experiments/v10w/aimers_v10wm.ipynb')
 ZIP = os.environ.get('MON_ZIP', 'submit_v10wm.zip')
 OLDZIP = os.environ.get('MON_OLDZIP', 'submit_v10wzc.zip')
 

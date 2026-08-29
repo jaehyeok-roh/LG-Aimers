@@ -14,8 +14,8 @@
 #   python tools/mk_ws.py                        # 다섯 개 전부 (기본)
 import ast, json, os, sys
 
-BASE = os.environ.get('WS_BASE', 'aimers_v9m.ipynb')
-OUT = os.environ.get('WS_OUT', 'aimers_v10w.ipynb')
+BASE = os.environ.get('WS_BASE', 'experiments/archive/aimers_v9m.ipynb')
+OUT = os.environ.get('WS_OUT', 'experiments/v10w/aimers_v10w.ipynb')
 RATES = os.environ.get('WS_RATES', 'success,middle,reverse,ball,strike').split(',')
 
 nb = json.load(open(BASE, encoding='utf-8'))

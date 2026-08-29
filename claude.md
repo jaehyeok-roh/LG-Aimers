@@ -1725,7 +1725,7 @@ R/F 를 섞은 값이라 이 지점에서 오도한다.
 2022~2024   2022-04-05                          2022~24 = 100%   (전체 53.4%)
 ```
 
-`aimers_v9m.ipynb` / `aimers_v10w.ipynb` / `tools/mk_v8ab.py:73` 가 `format='%m/%d/%Y'` 로
+`experiments/archive/aimers_v9m.ipynb` / `experiments/v10w/aimers_v10w.ipynb` / `tools/mk_v8ab.py:73` 가 `format='%m/%d/%Y'` 로
 읽는다. **하필 test 에 가장 가까운 세 시즌이 전부 NaT 다.**
 
 - `_d` 는 `build_rest_foul` 안에서만 쓰이고 **`USE_REST_FOUL = False`** 이므로
@@ -2912,21 +2912,33 @@ CPU 스크리너 **816**, GPU 오프셋 셀 **784~797**. 차이 약 **+26** 으�
 
 ### 노트북 계보 (혼동 방지용)
 
-**본 학습 노트북은 루트에 둘이다.**
+**루트에는 현행 제출본 하나만 둔다.** 나머지는 전부 `experiments/` 아래다
+(2026-08-29 정리. 그전에는 루트에 노트북 22개가 쌓여 있었다).
 
 | 파일 | 버전 | 리더보드 |
 |---|---|---|
-| **`aimers_v9m.ipynb`** | **v9m — 현행 최고** | **996.9977** |
-| `aimers_tuned_ensemble.ipynb` | v5 (이전 기준선) | 990.9528 |
+| **`aimers_v10wzc.ipynb`** | **v10wzc — 현행 최고** | **1,121.8905** |
+| `experiments/v10w/aimers_v10wz.ipynb` | 5분류 타겟 | 1,116.1659 |
+| `experiments/v10w/aimers_v10wq.ipynb` | 이진 + aux 2종 | 1,103.3169 |
+| `experiments/archive/aimers_v9m.ipynb` | v9m | 996.9977 |
+| `experiments/archive/aimers_tuned_ensemble.ipynb` | v5 | 990.9528 |
 
-`aimers_v9m.ipynb` 는 v5 노트북에 **절개 실험용 플래그 4개**를 붙인 것이고,
-그중 **하나만 켜져 있다**:
+⚠️ **빌더의 `BASE`/`OUT` 기본값도 같이 옮겨졌다.** `tools/mk_*.py` 는 노트북을 맨
+파일명으로 물고 있었으므로 이동과 함께 16개 파일의 경로를 고쳤고, 모든 `BASE`
+기본값이 실제로 존재하는지 검증했다(누락 0건). 새 빌더를 쓸 때 base 를 지정하려면
+`experiments/v10w/` 경로를 쓸 것.
 
-```python
-DROP_CAL      = ['game_month', 'game_dayofweek']   # ← 켜짐. 이게 +6.04 다
-COND_DECAY    = 1.0      # 1.0 = 감쇠 없음, v5 와 수식적으로 동일 (비트 단위 확인)
-USE_REST_FOUL = False
-USE_COND_PB   = False
+```
+aimers_v10wzc.ipynb             본 학습 (현행 최고, 1,121.8905)
+claude.md  README.md            문서
+tools/                          빌더 · EDA · 검증 도구
+experiments/
+  v10w/       v10w 계열 19개 (v10w~v10wzb, ptc6, ptc15, mcbase)
+  archive/    v9m · tuned_ensemble · skfold · offset
+  capacity/   v7 · converge · loss · topt        반복수·손실함수·튜닝 (전부 소진)
+  features/   baseline · asof_screen · tmdyn · bat · pct
+  models/     fam · fam2 · fam3 · nn · nn3
+  colab/      코랩 실행본
 ```
 
 나머지 셋은 꺼져 있을 때 v5 와 **완전히 같은 경로**를 탄다 — 절개 실험에서

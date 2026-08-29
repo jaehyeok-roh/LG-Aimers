@@ -14,7 +14,7 @@
 # 사용: python mk_v8ab.py m r b d
 import ast, json, os, sys
 
-NB = 'aimers_tuned_ensemble.ipynb'
+NB = 'experiments/archive/aimers_tuned_ensemble.ipynb'
 
 S1 = os.environ.get('S1') == '1'      # 1-seed(10모델) 축소판. 부호만 보면 되는 절개용.
 PREFIX = 's1' if S1 else 'v8'

@@ -21,8 +21,8 @@ import json
 import os
 import sys
 
-BASE = os.environ.get('AR_BASE', 'aimers_v10wp.ipynb')
-OUT = os.environ.get('AR_OUT', 'aimers_v10wa.ipynb')
+BASE = os.environ.get('AR_BASE', 'experiments/v10w/aimers_v10wp.ipynb')
+OUT = os.environ.get('AR_OUT', 'experiments/v10w/aimers_v10wa.ipynb')
 
 nb = json.load(open(BASE, encoding='utf-8'))
 cells = nb['cells']

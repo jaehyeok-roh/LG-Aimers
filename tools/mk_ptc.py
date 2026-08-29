@@ -23,7 +23,7 @@ import sys
 MODE = os.environ.get('PTC_MODE', 'ptc6')
 if MODE not in ('ptc6', 'ptc15'):
     sys.exit('PTC_MODE 는 ptc6 또는 ptc15')
-BASE = os.environ.get('PTC_BASE', 'aimers_mcbase.ipynb')
+BASE = os.environ.get('PTC_BASE', 'experiments/v10w/aimers_mcbase.ipynb')
 OUT = os.environ.get('PTC_OUT', 'aimers_%s.ipynb' % MODE)
 ZIP = 'submit_%s.zip' % MODE
 

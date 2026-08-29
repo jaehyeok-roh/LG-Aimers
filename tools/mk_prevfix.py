@@ -18,8 +18,8 @@ import json
 import os
 import sys
 
-BASE = os.environ.get('PF_BASE', 'aimers_v10wb.ipynb')
-OUT = os.environ.get('PF_OUT', 'aimers_v10wp.ipynb')
+BASE = os.environ.get('PF_BASE', 'experiments/v10w/aimers_v10wb.ipynb')
+OUT = os.environ.get('PF_OUT', 'experiments/v10w/aimers_v10wp.ipynb')
 
 nb = json.load(open(BASE, encoding='utf-8'))
 cells = nb['cells']

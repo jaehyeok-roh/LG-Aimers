@@ -16,7 +16,7 @@ import os
 import numpy as np
 import pandas as pd
 
-NB = 'aimers_tuned_ensemble.ipynb'
+NB = 'experiments/archive/aimers_tuned_ensemble.ipynb'
 OUT = 'data/pitcher_id_mapping_v2.csv'
 
 

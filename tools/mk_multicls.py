@@ -25,8 +25,8 @@ import json
 import os
 import sys
 
-BASE = os.environ.get('MC_BASE', 'aimers_mcbase.ipynb')
-OUT = os.environ.get('MC_OUT', 'aimers_v10wz.ipynb')
+BASE = os.environ.get('MC_BASE', 'experiments/v10w/aimers_mcbase.ipynb')
+OUT = os.environ.get('MC_OUT', 'experiments/v10w/aimers_v10wz.ipynb')
 
 nb = json.load(open(BASE, encoding='utf-8'))
 cells = nb['cells']

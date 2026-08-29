@@ -7,7 +7,7 @@
 Score = max(0, 100000 x (1 - Brier / (r(1-r))))     # r = 평가 데이터 실제 평균 성공률
 ```
 
-**현재 리더보드 1,116.17** (`aimers_v10wz.ipynb`) · 마감 2026-09-02 09:59
+**현재 리더보드 1,121.89** (`aimers_v10wzc.ipynb`) · 마감 2026-09-02 09:59
 
 train 은 2019~2024, test 는 2025 다. **항상 미래 시즌을 예측하는 문제**이고,
 이 한 문장이 아래 모든 판단의 근거다.
@@ -31,9 +31,10 @@ train 은 2019~2024, test 는 2025 다. **항상 미래 시즌을 예측하는 �
 ## 구조
 
 ```
-aimers_v10wz.ipynb            본 학습 (현행). 제출물을 만드는 노트북
-aimers_mcbase.ipynb           그 재료 — mk_auxrev.py 가 v10wp 에서 생성
-aimers_v10wp.ipynb            그 전 판
+aimers_v10wzc.ipynb                       본 학습 (현행). 제출물을 만드는 노트북
+experiments/v10w/aimers_mcbase.ipynb      그 재료 — mk_auxrev.py 가 v10wp 에서 생성
+experiments/v10w/                         v10w 계열 실험 19개
+experiments/archive/                      v9m · v5 등 이전 세대
 claude.md                     설계 근거 · 실패 기록 · 함정 모음 (가장 중요한 문서)
 tools/                        빌더 · 스크리너 · 검증 · EDA 41편
 experiments/                  옛 진단 노트북 (experiments/README.md 에 결론 요약)
@@ -47,8 +48,8 @@ data/  cache/  out/  model/   원본 데이터와 산출물 (git 제외, 전부 
 현행 제출본을 다시 만들려면:
 
 ```
-AR_TARGETS=reverse AR_OUT=aimers_mcbase.ipynb python tools/mk_auxrev.py
-python tools/mk_multicls.py          # -> aimers_v10wz.ipynb
+AR_TARGETS=reverse AR_OUT=experiments/v10w/aimers_mcbase.ipynb python tools/mk_auxrev.py
+python tools/mk_multicls.py          # -> experiments/v10w/aimers_v10wz.ipynb
 ```
 
 ## 접근

@@ -10,8 +10,8 @@ import json
 import os
 import sys
 
-BASE = os.environ.get('WB_BASE', 'aimers_v10w.ipynb')
-OUT = os.environ.get('WB_OUT', 'aimers_v10wb.ipynb')
+BASE = os.environ.get('WB_BASE', 'experiments/v10w/aimers_v10w.ipynb')
+OUT = os.environ.get('WB_OUT', 'experiments/v10w/aimers_v10wb.ipynb')
 RATES = ['success', 'middle']
 
 nb = json.load(open(BASE, encoding='utf-8'))

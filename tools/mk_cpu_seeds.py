@@ -16,7 +16,7 @@
 #   python tools/mk_cpu_seeds.py --push          # 생성 + push
 import ast, json, os, subprocess, sys
 
-BASE = os.environ.get('CS_BASE', 'aimers_v10w.ipynb')
+BASE = os.environ.get('CS_BASE', 'experiments/v10w/aimers_v10w.ipynb')
 PFX = os.environ.get('CS_PREFIX', 'cpu')   # 커널 이름 접두어
 TAGS = {'a': 42, 'b': 202, 'c': 2024}
 PUSH = '--push' in sys.argv
