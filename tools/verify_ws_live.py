@@ -35,6 +35,17 @@ def run(strip_ws, tag):
                        text=True, encoding='utf-8', errors='replace')
     out = os.path.join(d, 'output', 'submission.csv')
     if not os.path.exists(out):
+        # 대조군이 KeyError('w_n'/'wb_n' 같은 복원 컬럼)로 죽는 것은 **통과**다.
+        # 읽지도 않는 상수 때문에 그 컬럼을 찾다가 죽을 수는 없다 -- 상수가
+        # 하드 의존이라는 가장 강한 증거이며, claude.md 의 '조용히 건너뛰고
+        # 추론 전부 NaN' 사고와 정반대다. 그 외의 실패는 그대로 에러로 둔다.
+        err = (r.stderr or '')
+        if strip_ws and 'KeyError' in err:
+            import re as _re
+            k = _re.findall(r"KeyError: '([^']+)'", err)
+            if k and any(x.startswith(('w_', 'wb_', 'w5_')) for x in k):
+                print(f"  {PREFIX}* 없음  -> KeyError: {k[-1]} (복원 컬럼 소실로 크래시)")
+                return None
         print((r.stdout or '')[-600:]); print((r.stderr or '')[-800:])
         raise RuntimeError(f'{tag} 실패')
     return pd.read_csv(out).set_index('row_id')['control_success']
@@ -44,6 +55,11 @@ print(f'zip {ZIP} | {N}행\n', flush=True)
 a = run(False, 'with_ws')
 print(f'  {PREFIX}* 있음  평균 {a.mean():.6f}  std {a.std():.6f}', flush=True)
 b = run(True, 'without_ws')
+if b is None:
+    print('=' * 60)
+    print(f'✅ {PREFIX}* 가 살아 있다 (없으면 script.py 가 하드 실패한다)')
+    print('=' * 60)
+    raise SystemExit(0)
 print(f'  {PREFIX}* 없음  평균 {b.mean():.6f}  std {b.std():.6f}', flush=True)
 
 d = (a - b).abs()
