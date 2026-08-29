@@ -2822,7 +2822,9 @@ def main():
     X, y, season, meta = load()
     params = dict(meta['best_params'])
     params.update(iterations=iters, cat_features=meta['cat_features'],
-                  task_type='CPU', thread_count=-1, verbose=0)
+                  task_type=os.environ.get('SCREEN_TASK_TYPE',
+                                          meta['best_params'].get('task_type', 'CPU')),
+                  thread_count=-1, verbose=0)
     # early_stopping_rounds 는 그대로 둔다 — 오프셋 셀과 조건을 맞춰야 base 가 알려진
     # 790 근처를 재현하는지 확인할 수 있다 (4-15: 하네스가 기지의 값을 내는지 먼저 볼 것).
 
@@ -2838,6 +2840,7 @@ def main():
               f"채점에서 뺀다 ({(~ctx['score_mask']).mean():.1%})", flush=True)
     ctx['target'] = float(ctx['yv'][ctx['score_mask']].mean() if ctx['score_mask']
                           is not None else ctx['yv'].mean())
+    print(f"task_type = {params['task_type']}", flush=True)
     print(f"학습 {mh.sum():,}행(~{HOLDOUT-1}) -> 검증 {mv.sum():,}행({HOLDOUT}) "
           f"| 반복 {iters} | fold {FOLDS}\n", flush=True)
 
