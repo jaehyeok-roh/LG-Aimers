@@ -260,3 +260,10 @@ data/
 # 학습 산출물 — 룩업 테이블만 예외
 model/
 !model/tskill_table.csv
+
+# 캐글 커널 회수물 (모델 30개 + 제출 zip, 수 GB. 커널 재실행으로 재생성 가능)
+kout_*/
+# 캐글 push 작업 폴더 (kernel-metadata.json 은 계정 정보라 이미 비공개)
+kpush*/
+# screen.py 의 캐글용 기계적 사본 (mk_kscreen 의 KS_FILES 로 실어 보낸다)
+tools/scr.py
