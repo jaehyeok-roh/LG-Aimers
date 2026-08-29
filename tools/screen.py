@@ -1796,7 +1796,12 @@ def cand_wsmixd(ctx, **kw):
 _FAILL = ['middle', 'reverse']
 # 보조 타겟으로 쓸 수 있는 라벨 전부. eda41 투수 수준 신호 크기(success=100%):
 #   reverse 102% | ball 61% | strike 55% | middle 45% | wild 42%
-_AUXL = ['middle', 'reverse', 'ball', 'strike']
+_AUXL = ['middle', 'reverse', 'ball', 'strike',
+         'fastball', 'breaking', 'offspeed']
+# ★ 구종도 완벽하게 복원된다 (2026-08-27 검증): 세 비율의 차분 합이 147만 행
+#   **전부 정확히 1** (fastball .5414 / breaking .2958 / offspeed .1627).
+#   teacher 실험이 '실제 던진 구종' 을 +478 로 쟀지만 추론 불가라 접었던 것을,
+#   **타겟**으로는 쓸 수 있다 — multicls 와 같은 기전(과정 분리)이다.
 _CONDF = {}
 
 
@@ -2019,11 +2024,13 @@ def _aux_targets():
     _AUXC['middle'] = np.where(good, m, np.nan)
     _AUXC['reverse'] = np.where(good, r, np.nan)
     _AUXC['wild'] = np.where(good, (1 - y) * (1 - np.nan_to_num(m)) * (1 - np.nan_to_num(r)), np.nan)
-    # ball / strike 도 같은 차분으로 복원된다 (eda41 신호 61% / 55%).
-    for _k in ('ball', 'strike'):
-        _v = F.get(_k)
-        if _v is not None:
-            _AUXC[_k] = np.where(np.isfinite(_v), _v, np.nan)
+    # ⚠️ _AUXL 에 라벨을 추가하면 여기서 **자동으로** 노출되게 한다.
+    #    개별 이름을 손으로 적다가 ball/strike, fastball 에서 두 번 KeyError 를 냈다.
+    for _k in _AUXL:
+        if _k not in _AUXC:
+            _v = F.get(_k)
+            if _v is not None:
+                _AUXC[_k] = np.where(np.isfinite(_v), _v, np.nan)
     # 5분류: 0 성공 / 1 몰림만 / 2 반대만 / 3 둘다 / 4 크게벗어남
     cls = np.where(y == 1, 0,
                    np.where((m == 1) & (r == 1), 3,
@@ -2377,6 +2384,101 @@ def cand_mcaux(ctx, **kw):
         print(f'    5분류 fold {_f+1}/{FOLDS}', flush=True)
     return np.mean(out, axis=0)
 
+
+_PT = ['fastball', 'breaking', 'offspeed']
+
+
+def _pt_code(A):
+    """투구별 구종 코드 0/1/2. 셋 중 정확히 하나가 1임이 검증됐다."""
+    f, br, o = A['fastball'], A['breaking'], A['offspeed']
+    good = np.isfinite(f) & np.isfinite(br) & np.isfinite(o)
+    tot = np.nan_to_num(f) + np.nan_to_num(br) + np.nan_to_num(o)
+    bad = int((good & (tot != 1)).sum())
+    if bad:
+        raise RuntimeError('구종 합이 1이 아닌 행 %d 개 — 복원을 의심할 것' % bad)
+    return np.where(good, np.where(f == 1, 0, np.where(br == 1, 1, 2)), np.nan)
+
+
+def _mc_run(ctx, cls, nclass, succ_mask, tag):
+    """다중분류 학습 후 **성공에 해당하는 클래스들의 확률 합**을 쓴다.
+
+    ⚠️ isotonic 은 이진 y 로 적합한다 (채점이 P(success) 니까).
+    ⚠️ 폴드 분할은 이진 y 로 (기존 구성과 폴드를 맞춘다).
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    drop = [c for c in ('season', 'game_type') if c in Xh.columns]
+    ap = dict(ctx['params'])
+    ap['cat_features'] = [c for c in ctx['cat'] if c not in drop]
+    o, v = _stack_aux(Xh.drop(columns=drop), Xv.drop(columns=drop),
+                      A['reverse'][mh], ap, ap['cat_features'])
+    Xh['aux_rev'] = o.astype(np.float32)
+    Xv['aux_rev'] = v.astype(np.float32)
+
+    ch = cls[mh]
+    yh = ctx['yh']
+    fit = np.isfinite(ch)
+    p2 = dict(ctx['params'])
+    p2['loss_function'] = 'MultiClass'
+    p2['eval_metric'] = 'MultiClass'
+    p2.pop('early_stopping_rounds', None)
+    print(f'    {tag}: {nclass}분류 | 분포 '
+          + str({int(k): int(n) for k, n in zip(*np.unique(ch[fit], return_counts=True))}),
+          flush=True)
+    out = []
+    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    for _f, (ti, vi) in enumerate(skf.split(Xh, yh)):
+        ti = ti[fit[ti]]
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], ch[ti].astype(int), verbose=0)
+        cols = [i for i, c in enumerate(m.classes_) if succ_mask(int(c))]
+        rv = m.predict_proba(Xh.iloc[vi])[:, cols].sum(axis=1)
+        iso = IsotonicRegression(out_of_bounds='clip').fit(rv, yh[vi])
+        out.append(iso.predict(m.predict_proba(Xv)[:, cols].sum(axis=1)))
+        print(f'    {tag} fold {_f+1}/{FOLDS} (성공 클래스 {cols})', flush=True)
+    return np.mean(out, axis=0)
+
+
+def cand_ptc6(ctx, **kw):
+    """타겟 = {성공/실패} x {패스트볼/브레이킹/오프스피드} = 6분류.
+
+    P(success) = 성공 3클래스의 확률 합.
+
+    **왜**: 패스트볼 제구와 브레이킹볼 제구는 물리적으로 다른 기술인데, 지금
+    모델은 그 둘을 **평균해서** 배운다. 구종을 타겟에 넣으면 모델이
+    P(구종|X) 와 P(성공|구종,X) 를 나눠 배우고 다시 섞는다.
+    `multicls`(+12.85)가 통한 기전과 같다 — 상쇄되던 과정을 분리한다.
+
+    ⚠️ teacher 실험은 '구종 성향' 을 피처로 준 것이 0 이라 했다. 이건 다르다 —
+       성향(X 의 함수)을 주는 게 아니라 **타겟을 쪼개는** 것이다.
+    """
+    A = _aux_targets()
+    pt = _pt_code(A)
+    ok = np.isfinite(A['cls'])
+    fail = np.where(ok, (A['cls'] != 0).astype(float), np.nan)  # cls==0 이 성공이다
+    cls = np.where(np.isfinite(pt) & ok, fail * 3 + pt, np.nan)  # 0~2 성공, 3~5 실패
+    return _mc_run(ctx, cls, 6, lambda c: c < 3, 'ptc6')
+
+
+def cand_ptc15(ctx, **kw):
+    """타겟 = 5분류(실패유형) x 3구종 = 15분류. `multicls` 의 확장판.
+
+    0~2 성공x구종 / 3~5 몰림만 / 6~8 반대만 / 9~11 둘다 / 12~14 크게벗어남.
+    P(success) = 0,1,2 의 합.
+    ⚠️ 15분류는 CPU 로 못 돌린다 (5분류 3폴드가 400분). KS_GPU=1 로 올릴 것.
+    """
+    A = _aux_targets()
+    pt = _pt_code(A)
+    base = A['cls']                                   # 0 성공 /1 몰림 /2 반대 /3 둘다 /4 wild
+    cls = np.where(np.isfinite(pt) & np.isfinite(base), base * 3 + pt, np.nan)
+    return _mc_run(ctx, cls, 15, lambda c: c < 3, 'ptc15')
+
 def cand_dropoldF(ctx, **kw):
     """체제 변화 **이전**의 F 행만 학습에서 뺀다 (game_type 은 유지).
 
@@ -2638,7 +2740,8 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'multicls': cand_multicls, 'auxperm': cand_auxperm,
          'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt, 'auxrevns': cand_auxrevns,
          'auxns3': cand_auxns3, 'auxns4': cand_auxns4,
-         'auxnsb': cand_auxnsb, 'mcaux': cand_mcaux}
+         'auxnsb': cand_auxnsb, 'mcaux': cand_mcaux,
+         'ptc6': cand_ptc6, 'ptc15': cand_ptc15}
 
 
 def main():

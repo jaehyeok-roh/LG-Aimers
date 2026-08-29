@@ -19,6 +19,7 @@ STOP = 'BEST_PARAMS = _found'
 EXTRA_ENV = json.loads(os.environ.get('KS_ENV', '{}'))  # 커널 안으로 넘길 환경변수
 # 작은 부속 파일을 base64 로 커널에 같이 싣는다 (예: 구종별 실력 룩업 382KB)
 EXTRA_FILES = [f for f in os.environ.get('KS_FILES', '').split(',') if f]
+USE_GPU = os.environ.get('KS_GPU', '0') == '1'
 TAG = os.environ.get('KS_TAG', 'kscreen')   # 커널을 동시에 여러 개 띄우려면 바꾼다
 SCRIPT = os.environ.get('KS_SCRIPT', 'tools/screen.py')   # 다른 도구도 같은 커널로 돌린다
 CANDS = sys.argv[1:] or ['base', 'diff']
@@ -112,6 +113,10 @@ json.dump(out, open(f'{D}/aimers_{TAG}.ipynb', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 meta = json.load(open('kernel-metadata.json'))
 meta.update(id=f'homekeggle/aimers-{TAG}', title=f'aimers-{TAG}',
-            code_file=f'aimers_{TAG}.ipynb', enable_gpu=False)   # ← GPU 쿼터 안 씀
+            code_file=f'aimers_{TAG}.ipynb', enable_gpu=USE_GPU)
+# ⚠️ 기본은 CPU (쿼터 안 씀, 동시 5개). 다중분류는 CPU 가 25배 느려서
+#    (5분류 3폴드에 400분) KS_GPU=1 로 켤 것. 단 GPU 는 기본값이 달라
+#    (bootstrap_type Bayesian, border_count 128) CPU 결과와 절대값을 섞지 말 것 —
+#    같은 GPU 실행 안에서 짝지어 비교해야 한다.
 json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
-print(f'{D}/aimers_{TAG}.ipynb — 후보 {CANDS}, 셀 {len(cells)}개, enable_gpu=False, 문법 OK')
+print(f'{D}/aimers_{TAG}.ipynb — 후보 {CANDS}, 셀 {len(cells)}개, enable_gpu={USE_GPU}, 문법 OK')
