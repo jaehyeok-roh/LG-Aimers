@@ -29,7 +29,7 @@ compile(screen_src, 'screen.py', 'exec')
 b64 = base64.b64encode(screen_src.encode('utf-8')).decode('ascii')
 b64 = '\n'.join(b64[i:i + 100] for i in range(0, len(b64), 100))
 
-SAVE = '''# ===== 캐시 저장 (tools/make_cache.py 와 같은 레이아웃) =====
+SAVE = ('_USE_GPU = %r\n' % USE_GPU) + '''# ===== 캐시 저장 (tools/make_cache.py 와 같은 레이아웃) =====
 import json
 import os
 import numpy as np
@@ -44,8 +44,12 @@ np.save(f"{CDIR}/y.npy", y_full.to_numpy())
 np.save(f"{CDIR}/season.npy", _season)
 np.save(f"{CDIR}/row_id.npy", df_processed["row_id"].to_numpy())
 _bp = {k: v for k, v in BEST_PARAMS.items() if k != "cat_features"}
-_bp["task_type"] = "CPU"          # 캐글 CPU 커널이다
-_bp.pop("bagging_temperature", None)   # Bayesian 전용 — MVS 에서는 무시된다
+# ⚠️ KS_GPU=1 로 GPU 커널을 띄웠으면 학습도 GPU 로 해야 한다. 예전엔 여기서
+# task_type 을 CPU 로 못박아서, GPU 머신 위에서 CPU 학습이 돌아 쿼터만 태웠다
+# (2026-08-29 kmcs: 5분류 2후보를 CPU 로 돌려 13시간 예상, 12시간 제한에 걸릴 뻔).
+_bp["task_type"] = "GPU" if os.path.isdir("/kaggle") and _USE_GPU else "CPU"
+if _bp["task_type"] == "CPU":
+    _bp.pop("bagging_temperature", None)   # Bayesian 전용 — MVS 에서는 무시된다
 json.dump({"cat_features": list(cat_features), "best_params": _bp,
            "n_rows": int(len(X_full)), "n_feats": int(X_full.shape[1])},
           open(f"{CDIR}/meta.json", "w"), indent=2, ensure_ascii=False)

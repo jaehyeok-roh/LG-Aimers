@@ -2145,6 +2145,68 @@ def cand_multicls(ctx, **kw):
     return np.mean(out, axis=0)
 
 
+def cand_mcshuf(ctx, **kw):
+    """`multicls` 의 **대조군** — 실패 행들 사이에서 유형 라벨만 무작위로 섞는다.
+
+    multicls(타겟 5분류)는 리더보드 +12.85 를 냈는데 **기전이 미상**이다.
+    처음 세운 설명("유형별 드리프트가 서로 반대라 상쇄되던 과정이 분리된다")은
+    판정 축 7분류(`v10wj7` -6.69)로 반증됐다 — 드리프트 배율이 더 큰데 음수였다.
+
+    남은 두 가설을 이 대조군이 가른다:
+      A. 구조적 규제  트리 구조를 5개 출력이 공유하니 분할이 여러 표적에 동시에
+                      쓸모 있어야 한다. 실패 유형의 **의미와 무관**하다.
+      B. 실패 의미론  몰림/반대/둘다/크게벗어남이라는 구분 자체에 정보가 있다.
+
+    섞기는 성공/실패 이진 구조와 네 유형의 주변분포를 **그대로 보존**하고,
+    피처와 '어느 유형인가' 사이의 연관만 파괴한다.
+      이득이 남는다  -> A (구조적). 그러면 표적을 아무렇게나 쪼개도 되고 확장 여지가 있다.
+      이득이 사라진다 -> B (의미론). 그러면 다른 '의미 있는' 분할을 찾아야 한다.
+
+    ⚠️ 섞는 것은 **학습 절반 안에서만**. 검증 절반은 애초에 라벨을 안 쓴다.
+    """
+    A = _aux_targets()
+    season = np.load(f'{CACHE}/season.npy')
+    mh, mv = season <= HOLDOUT - 1, season == HOLDOUT
+    Xh, Xv = ctx['Xh'].copy(), ctx['Xv'].copy()
+    for W in (_wseason5_cols(), _wsbat_cols()):
+        for k, v in W.items():
+            Xh[k] = v[mh].astype(np.float32)
+            Xv[k] = v[mv].astype(np.float32)
+    cls = A['cls'][mh].copy()
+    yh = ctx['yh']
+    fit = np.isfinite(cls)
+    # 실패 행(클래스 1~4) 안에서만 라벨을 순환시킨다
+    fm = fit & (cls > 0)
+    rng = np.random.default_rng(0)
+    cls[fm] = rng.permutation(cls[fm])
+    # 검산: 이진 구조와 주변분포가 보존됐는가
+    _orig = A['cls'][mh]
+    assert np.array_equal((cls > 0)[fit], (_orig > 0)[fit]), '이진 구조가 깨졌다'
+    _a = np.unique(cls[fit], return_counts=True)[1]
+    _b = np.unique(_orig[fit], return_counts=True)[1]
+    assert np.array_equal(_a, _b), '주변분포가 깨졌다'
+    _same = (cls[fm] == _orig[fm]).mean()
+    print(f'    셔플 완료: 실패 {int(fm.sum()):,}행, 원래 유형과 일치 {_same:.3f} '
+          f'(무작위 기대 ~0.31)', flush=True)
+
+    p2 = dict(ctx['params'])
+    p2['loss_function'] = 'MultiClass'
+    p2['eval_metric'] = 'MultiClass'
+    p2.pop('early_stopping_rounds', None)
+    out = []
+    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    for ti, vi in skf.split(Xh, yh):
+        ti = ti[fit[ti]]
+        m = CatBoostClassifier(**p2)
+        m.fit(Xh.iloc[ti], cls[ti].astype(int), verbose=0)
+        ci = list(m.classes_).index(0)
+        rv = m.predict_proba(Xh.iloc[vi])[:, ci]
+        iso = IsotonicRegression(out_of_bounds='clip').fit(rv, yh[vi])
+        out.append(iso.predict(m.predict_proba(Xv)[:, ci]))
+    print(f'    5분류(셔플) 학습 완료 (성공 클래스 인덱스 {ci})', flush=True)
+    return np.mean(out, axis=0)
+
+
 def cand_auxperm(ctx, **kw):
     """`auxrev` 의 **대조군** — reverse 라벨을 무작위로 섞고 똑같이 돌린다.
 
@@ -2737,7 +2799,7 @@ CANDS = {'base': cand_base, 'diff': cand_diff, 'bayes': cand_bayes, 'mvs_bc128':
          'hand4': cand_hand4, 'bsx': cand_bsx, 'cnt12h': cand_cnt12h,
          'cnth': cand_cnth, 'cntg': cand_cntg,
          'auxrev': cand_auxrev, 'aux3': cand_aux3,
-         'multicls': cand_multicls, 'auxperm': cand_auxperm,
+         'multicls': cand_multicls, 'mcshuf': cand_mcshuf, 'auxperm': cand_auxperm,
          'cnt12b': cand_cnt12b, 'catall': cand_catall, 'auxcnt': cand_auxcnt, 'auxrevns': cand_auxrevns,
          'auxns3': cand_auxns3, 'auxns4': cand_auxns4,
          'auxnsb': cand_auxnsb, 'mcaux': cand_mcaux,
