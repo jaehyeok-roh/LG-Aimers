@@ -66,11 +66,16 @@ sub(find(A1)[0], A1, N1)
 print('학습 경로(셀07)에 tmw5 삽입')
 
 # ---------------------------------------------- 2) 추론 경로 (script.py, 셀 22)
-A2 = 'df_proc["w_share"] = _wn / np.maximum(_n, 1.0)'
+# ⚠️ 앵커는 w_success 를 만드는 루프 **뒤**여야 하고, 그 블록은 `if _ws_rates:` 안이라
+# 들여쓰기가 **8칸**이다. 처음에 w_share 줄(루프 앞, 4칸으로 삽입)에 걸었다가
+# IndentationError 로 42분을 태웠다.
+# ⚠️ 짧은 앵커는 타자측 블록에도 있어 2곳이 잡힌다. 투수측 전용 문구를 포함한다.
+A2 = ('        print("당해시즌 복원 완료: 투구수 중앙값 %.0f / 신규투수 비율 %.1f%%"\n'
+      '              % (float(np.median(_wn)), 100.0 * float((_n0 == 0).mean())))')
 N2 = A2 + """
-    # 학습과 **같은 리터럴 경계**를 쓴다 (36점짜리 exact/asof 사고 유형 회피).
-    df_proc["tmw5"] = (df_proc["pitcher_team_id"].astype(str) + "|"
-                       + """ + BIN.replace('{V}', 'df_proc["w_success"].to_numpy(dtype="float64")') + """)"""
+        # 학습과 **같은 리터럴 경계**를 쓴다 (36점짜리 exact/asof 사고 유형 회피).
+        df_proc["tmw5"] = (df_proc["pitcher_team_id"].astype(str) + "|"
+                           + """ + BIN.replace('{V}', 'df_proc["w_success"].to_numpy(dtype="float64")') + """)"""
 sub(find(A2)[0], A2, N2)
 print('추론 경로(셀22)에 tmw5 삽입 — 같은 경계 리터럴')
 
@@ -108,5 +113,19 @@ sub(find(OLDZIP)[0], OLDZIP, ZIP)
 print('zip -> %s' % ZIP)
 for i in code:
     ast.parse(src(i))
+
+# ⚠️ 노트북 셀이 문법 OK 여도 **그 안의 script.py 소스 문자열**은 따로다.
+# 배포본은 학습이 끝난 뒤에야 그걸 ast.parse 하므로, 거기서 터지면 GPU 42분이 날아간다.
+# 여기서 미리 뽑아 파싱한다 (실제로 이걸로 42분짜리 IndentationError 를 겪었다).
+_n_checked = 0
+for i in code:
+    for node in ast.walk(ast.parse(src(i))):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)                 and 'def main(' in node.value and 'df_proc' in node.value:
+            ast.parse(node.value)          # 여기서 터지면 빌드가 멈춘다
+            _n_checked += 1
+if _n_checked == 0:
+    sys.exit('script.py 소스 문자열을 못 찾았다 -- 검사가 안 됐다')
+print('생성될 script.py 문법 OK (%d개 소스)' % _n_checked)
+
 json.dump(nb, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 print('%s 생성 -- %d셀 문법 OK' % (OUT, len(code)))
