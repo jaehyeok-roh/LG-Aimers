@@ -1,0 +1,460 @@
+<title>제구 예측 인수인계</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ink:#16181d; --ink-2:#494f5c; --ink-3:#7b8494;
+  --paper:#fbfaf7; --card:#ffffff; --line:#e2e0d9;
+  --clay:#a8452c; --clay-soft:#f3e3de;
+  --moss:#3d6a4f; --moss-soft:#e2eee6;
+  --dust:#8a7a52; --dust-soft:#f2ebd9;
+  --grid:#efede6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#eceae4; --ink-2:#a7adb9; --ink-3:#727a88;
+    --paper:#14161a; --card:#1c1f25; --line:#2e333c;
+    --clay:#e08a70; --clay-soft:#3a241e;
+    --moss:#7fc09a; --moss-soft:#1d2f25;
+    --dust:#cbb47c; --dust-soft:#302a1c;
+    --grid:#22262d;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#eceae4; --ink-2:#a7adb9; --ink-3:#727a88;
+  --paper:#14161a; --card:#1c1f25; --line:#2e333c;
+  --clay:#e08a70; --clay-soft:#3a241e;
+  --moss:#7fc09a; --moss-soft:#1d2f25;
+  --dust:#cbb47c; --dust-soft:#302a1c;
+  --grid:#22262d;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,sans-serif;
+  font-size:15.5px; line-height:1.72; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1000px; margin:0 auto; padding:0 22px 90px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+
+/* ── 헤더 ── */
+header{padding:52px 0 34px; border-bottom:2px solid var(--ink)}
+.kicker{
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3); margin-bottom:14px;
+}
+h1{
+  font-family:Bitter,Georgia,serif; font-weight:700; font-size:clamp(30px,4.6vw,46px);
+  line-height:1.14; margin:0 0 16px; letter-spacing:-.02em; text-wrap:balance;
+}
+.sub{color:var(--ink-2); max-width:66ch; margin:0}
+
+/* ── 스코어보드 ── */
+.board{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+  gap:1px; background:var(--line); border:1px solid var(--line);
+  margin:30px 0 8px;
+}
+.cellx{background:var(--card); padding:16px 18px}
+.cellx .lab{font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3)}
+.cellx .val{
+  font-family:"IBM Plex Mono",monospace; font-size:26px; font-weight:500;
+  margin-top:5px; letter-spacing:-.02em;
+}
+.cellx .note{font-size:12.5px; color:var(--ink-3); margin-top:3px}
+.up{color:var(--moss)} .warn{color:var(--clay)}
+
+/* ── 격차 추이 ── */
+.gapline{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+  background:var(--line); border:1px solid var(--line); margin:22px 0 4px;
+}
+.gapline > div{background:var(--card); padding:13px 16px}
+.gapline .d{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-3); letter-spacing:.06em}
+.gapline .g{font-family:"IBM Plex Mono",monospace; font-size:21px; margin-top:4px}
+.gapbar{height:5px; margin-top:9px; background:var(--grid)}
+.gapbar i{display:block; height:100%; background:var(--clay)}
+
+section{padding-top:44px}
+h2{
+  font-family:Bitter,Georgia,serif; font-weight:600; font-size:23px;
+  margin:0 0 6px; letter-spacing:-.01em;
+}
+h2 .n{
+  font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--clay);
+  display:block; letter-spacing:.14em; margin-bottom:6px; font-weight:500;
+}
+.lede{color:var(--ink-2); margin:0 0 20px; max-width:70ch}
+
+table{width:100%; border-collapse:collapse; font-size:14px; margin:14px 0}
+th{
+  text-align:left; font-weight:600; font-size:11.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--ink-3);
+  padding:8px 12px; border-bottom:1.5px solid var(--ink);
+}
+td{padding:9px 12px; border-bottom:1px solid var(--grid); vertical-align:top}
+td.num,th.num{text-align:right; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+tr.hi td{background:var(--moss-soft)}
+tr.dead td{color:var(--ink-3)}
+.scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+
+.pill{
+  display:inline-block; font-size:11px; font-family:"IBM Plex Mono",monospace;
+  padding:2px 8px; border-radius:2px; letter-spacing:.04em; white-space:nowrap;
+}
+.p-live{background:var(--moss-soft); color:var(--moss)}
+.p-dead{background:var(--clay-soft); color:var(--clay)}
+.p-warn{background:var(--dust-soft); color:var(--dust)}
+
+.callout{
+  border-left:3px solid var(--clay); background:var(--card);
+  padding:16px 20px; margin:20px 0; border-radius:0 3px 3px 0;
+}
+.callout.good{border-left-color:var(--moss)}
+.callout h3{
+  margin:0 0 8px; font-size:15px; font-family:Bitter,serif; font-weight:600;
+}
+.callout p:last-child{margin-bottom:0}
+
+pre{
+  background:var(--card); border:1px solid var(--line); border-radius:3px;
+  padding:14px 16px; overflow-x:auto; font-size:12.7px; line-height:1.62;
+  font-family:"IBM Plex Mono",monospace; margin:14px 0;
+}
+ul{padding-left:20px; margin:12px 0} li{margin:7px 0}
+strong{font-weight:600}
+.rule{border:0; border-top:1px solid var(--line); margin:0}
+footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); color:var(--ink-3); font-size:13px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="kicker">LG Aimers 9기 · 인수인계 · 2026-08-31</div>
+  <h1>KBO 제구 성공 확률 예측</h1>
+  <p class="sub">투구 하나가 제구 성공일 확률을 맞힌다. 평가는 Brier Skill Score.
+  train 은 2019~2024, test 는 2025 — <strong>항상 미래 시즌을 예측하는 문제</strong>다.
+  이 한 문장이 아래 모든 판단의 근거다.</p>
+
+  <div class="board">
+    <div class="cellx"><div class="lab">현재 점수</div><div class="val">1,150.26</div><div class="note">v10wph · 8/31</div></div>
+    <div class="cellx"><div class="lab">100인 컷</div><div class="val warn">1,163.87</div><div class="note">팀 35위 · 하루 ~5점 상승</div></div>
+    <div class="cellx"><div class="lab">격차</div><div class="val">13.61</div><div class="note">마감 시점 ~27 예상</div></div>
+    <div class="cellx"><div class="lab">남은 기간</div><div class="val">2일</div><div class="note">9/2 09:59 마감</div></div>
+  </div>
+
+  <div class="gapline">
+    <div><div class="d">8/30 아침</div><div class="g warn">+41.98</div><div class="gapbar"><i style="width:100%"></i></div></div>
+    <div><div class="d">8/30 저녁 · t13</div><div class="g warn">+21.40</div><div class="gapbar"><i style="width:51%"></i></div></div>
+    <div><div class="d">8/31 · phteam</div><div class="g up">+13.61</div><div class="gapbar"><i style="width:32%"></i></div></div>
+  </div>
+  <p class="lede" style="margin-top:10px; font-size:13.5px">
+  이틀 만에 격차의 <strong>3분의 2</strong>가 줄었다. 둘 다 같은 절차에서 나왔다 —
+  <a href="#scan" style="color:var(--clay)">05장의 상호작용 전수 스캔</a>.</p>
+</header>
+
+<section>
+  <h2><span class="n">01 / 지금 당장</span>무엇을 올리고, 무엇이 돌고 있나</h2>
+  <p class="lede"><strong>채점은 최고 점수 기준이다.</strong> 나쁜 제출이 좋은 제출을 밀어내지 않는다.
+  '안전하게 고정' 은 이 대회에서 의미가 없고, 마감까지 계속 던지는 것이 옳다.</p>
+
+  <div class="scroll"><table>
+    <thead><tr><th>상태</th><th>대상</th><th>base</th><th class="num">기대</th></tr></thead>
+    <tbody>
+      <tr class="hi"><td><span class="pill p-live">돌는 중</span></td>
+        <td><code>aimers-v10wtw</code> — <strong>tmw5</strong> (pitcher_team × 당해시즌 성공률 5분위, 60칸)</td>
+        <td class="mono">v10wph</td><td class="num up">+5 ~ +20</td></tr>
+      <tr><td><span class="pill p-live">검증 완료</span></td>
+        <td><code>kout_phm/submit_v10wphm.zip</code> — 4분류 스택</td>
+        <td class="mono">v10wph</td><td class="num">+2</td></tr>
+    </tbody>
+  </table></div>
+
+  <p><strong>커널이 끝나면 항상 이 순서다.</strong> 검증 셋 중 하나라도 실패하면 올리지 않는다.</p>
+  <pre>mkdir -p kout_tw &amp;&amp; PYTHONUTF8=1 kaggle kernels output homekeggle/aimers-v10wtw -p kout_tw
+
+PYTHONUTF8=1 python tools/audit_independence.py kout_tw/submit_v10wtw.zip        # 행 독립 (규정)
+PYTHONUTF8=1 python tools/verify_ws_live.py     kout_tw/submit_v10wtw.zip 600 ws_  # 투수측 상수 생존
+PYTHONUTF8=1 python tools/verify_ws_live.py     kout_tw/submit_v10wtw.zip 600 wb_  # 타자측 상수 생존</pre>
+
+  <ul>
+    <li>검증 출력은 <code>tail</code> 로 자르지 말고 <strong>판정 문자열로 grep</strong> 할 것. 판정 줄을 놓친 적이 있다.</li>
+    <li><code>ws_</code> 검증이 <code>KeyError: w_n</code> 으로 끝나면 그건 <strong>통과</strong>다 —
+      상수가 없으면 <code>script.py</code> 가 하드 실패한다는 뜻이고, 도구가 그렇게 읽도록 고쳐져 있다.</li>
+  </ul>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">02 / 점수 이력</span>현행 제출본은 무엇으로 이루어져 있나</h2>
+  <p class="lede">피처 120개. 기본 파이프라인 위에 일곱 덩어리가 순서대로 쌓여 있다.
+  <strong>전부 리더보드 실측으로 채택된 것</strong>이고, 각 줄은 그 하나만 바꿔서 잰 값이다.</p>
+
+  <div class="scroll"><table>
+    <thead><tr><th>버전</th><th>바뀐 것</th><th class="num">점수</th><th class="num">증분</th></tr></thead>
+    <tbody>
+      <tr class="dead"><td class="mono">v5</td><td>Optuna + 조건부 투수통계 + 재중심화</td><td class="num">990.95</td><td class="num">—</td></tr>
+      <tr class="dead"><td class="mono">v9m</td><td>월/요일 제거</td><td class="num">997.00</td><td class="num">+6.0</td></tr>
+      <tr><td class="mono">v10w</td><td><strong>투수 당해 시즌 성적 복원</strong> (wseason5)</td><td class="num">1058.72</td><td class="num up">+61.7</td></tr>
+      <tr><td class="mono">v10wb</td><td><strong>타자 당해 시즌 성적 복원</strong> (wsbat)</td><td class="num">1088.83</td><td class="num up">+30.1</td></tr>
+      <tr><td class="mono">v10wn</td><td>보조 타겟 <code>P(reverse|X)</code>, 보조모델에서 season 제거</td><td class="num">1103.31</td><td class="num up">+9.4</td></tr>
+      <tr><td class="mono">v10wz</td><td><strong>타겟을 5분류로</strong> (multicls)</td><td class="num">1116.17</td><td class="num up">+12.9</td></tr>
+      <tr><td class="mono">v10wzc</td><td>범주형 조합 2개 (cnt12 + hand4)</td><td class="num">1121.89</td><td class="num up">+5.7</td></tr>
+      <tr><td class="mono">v10wt13</td><td><strong>팀13 × 2023-05 체제전환 지시자</strong></td><td class="num">1142.47</td><td class="num up">+20.6</td></tr>
+      <tr class="hi"><td class="mono"><strong>v10wph</strong></td><td><strong>phteam (pitcher_hand × pitcher_team, 26칸) — 현행</strong></td><td class="num"><strong>1150.26</strong></td><td class="num up"><strong>+7.8</strong></td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="lede">파일 <code>experiments/v10w/aimers_v10wph.ipynb</code> ·
+  제출 zip <code>kout_ph/submit_v10wph.zip</code></p>
+
+  <div class="callout good">
+    <h3>이득이 난 것들의 공통점</h3>
+    <p>전부 <strong>다른 행·다른 테이블에서 정보를 끌어왔거나, 트리가 만들기 비싼 조합을 직접 준 것</strong>이다.
+    한 행 안에서 계산되는 파생피처는 세 번 독립적으로 0 이었다 (step1~13 파생 51개, 시즌내 백분위, 차이 피처 6개).</p>
+  </div>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">03 / 판정</span>검증을 믿지 말 것</h2>
+  <p class="lede">이 프로젝트 최대 병목은 <strong>어떤 로컬 검증도 리더보드를 못 맞힌다</strong>는 것이었다.
+  실측이 쌓이면서 규칙이 두 번 바뀌었고, 지금의 결론은 단순하다.</p>
+
+  <div class="callout">
+    <h3>2024 홀드아웃은 어느 방향으로도 후보를 거를 수 없다</h3>
+    <p>거짓 양성 4번, 거짓 음성 3번. <code>wsbat</code> 은 +3.0 인데 <strong>+30.1</strong>,
+    <code>cnt12h</code> 는 <strong>-6</strong> 인데 <strong>+5.72</strong> 였다.
+    양수도 음수도 정보가 아니다. 남은 용도는 '파이프라인이 안 죽었나' 확인뿐이다.</p>
+  </div>
+
+  <div class="callout">
+    <h3>2023 스크리너도 +40 아래면 부호를 못 맞힌다</h3>
+    <p>한때 <code>2023 × 0.3</code> 이 리더보드를 맞힌다고 기록했으나 그 아래에서 깨졌다 —
+    <code>bsx</code> 는 2023 <strong>+16</strong> 인데 실측 <strong>-7.74</strong> 였다.
+    <strong>큰 발견(+40 이상)을 확인하는 용도로만 쓴다.</strong></p>
+  </div>
+
+  <div class="scroll"><table>
+    <thead><tr><th>변경</th><th class="num">2024</th><th class="num">2023</th><th class="num">실측 LB</th><th>판정</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">wseason5</td><td class="num">+72.2</td><td class="num">+182.1</td><td class="num up">+61.7</td><td><span class="pill p-live">맞음</span></td></tr>
+      <tr><td class="mono">wsbat</td><td class="num warn">+3.0</td><td class="num">+71.7</td><td class="num up">+30.1</td><td><span class="pill p-dead">2024 거짓음성</span></td></tr>
+      <tr><td class="mono">mcaux</td><td class="num warn">+2.8</td><td class="num">+46.6</td><td class="num up">+12.9</td><td><span class="pill p-dead">2024 거짓음성</span></td></tr>
+      <tr><td class="mono">cnt12h</td><td class="num warn">−6</td><td class="num">+4.3</td><td class="num up">+5.7</td><td><span class="pill p-dead">2024 부호반전</span></td></tr>
+      <tr><td class="mono">bsx</td><td class="num">+3.8</td><td class="num warn">+16.2</td><td class="num">−7.74</td><td><span class="pill p-dead">2023 거짓양성</span></td></tr>
+      <tr><td class="mono">t13</td><td class="num warn">+5</td><td class="num">—</td><td class="num up">+20.6</td><td><span class="pill p-dead">2024 무반응</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="lede"><strong>결론: 판정은 리더보드로만 한다.</strong> 제출은 남아돌고 최고점 채점이다.
+  다만 <strong>변경은 한 번에 하나씩</strong> — 비가법성이 다섯 번 확인됐다
+  (<code>bsx</code>+<code>cnt12</code> 가 각각 +16.2/+3.4 인데 합치면 <strong>−1.2</strong>).</p>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">04 / 계산</span>제출 전에 점수를 예측하는 식</h2>
+  <p class="lede">평균이나 퍼짐을 건드리는 변경은 <strong>제출하지 않고도 부호를 알 수 있다.</strong>
+  세 식 모두 리더보드 실측으로 검증됐다.</p>
+
+  <pre>재중심화 어긋남 = 100000 × Δ평균² / r(1−r)        r ≈ 0.475
+수축           = (1.92λ − λ²)/0.9216,  λ* ≈ 0.96,  λ = std 비
+표적 분할 비용  ≈ −23  (5분류 기준, 출력 하나당 약 −6)</pre>
+
+  <p><strong>검증 사례.</strong> 트리를 1000→700 으로 자른 <code>n700</code> 에 이 식을 미리 적용해
+  <strong>−1.3</strong> 을 예측했고 실측이 <strong>−1.47</strong> 이었다. 잔차 −0.17 이 곧
+  '트리 700~1000 의 실제 기여' 이고, 그 한 줄로 <strong>용량 축이 5분류에서도 닫혔음</strong>이 확정됐다.</p>
+
+  <div class="callout good">
+    <h3>총합이 노이즈 안이어도 예측을 박아두면 결론이 난다</h3>
+    <p>나는 이 제출을 "기대 −1±1.5 라 아무것도 못 배운다" 며 말렸다. 틀렸다.
+    <strong>싼 실측을 기대 효과 크기를 근거로 말리지 말 것.</strong></p>
+  </div>
+</section>
+
+<hr class="rule">
+<section id="scan">
+  <h2><span class="n">05 / 방법</span>새 후보를 찾는 유일한 절차</h2>
+  <p class="lede">마지막 이틀의 <strong>+28.4</strong> 는 전부 이 절차에서 나왔다.
+  다른 방법으로 찾은 후보는 같은 기간에 전부 0 이하였다.</p>
+
+  <pre>1. 저카디널리티 축 쌍의 <strong>2차 상호작용 잔차</strong>를 전수로 잰다
+       r_ab = mean(y|a,b) − mean(y|a) − mean(y|b) + mean(y)
+       강도 = Σ 비중 × r²   →   401,000 × 강도 = 완벽히 잡았을 때의 점수
+
+2. <strong>2023 잔차 vs 2024 잔차 상관</strong>으로 거른다   (2025 는 전환 후 체제다)
+
+3. 강도 × 상관 이 phteam(15) 급이면 후보.  hand4(50)가 상한 교정점
+
+4. 범주형 조합으로 직접 준다</pre>
+
+  <p><strong>절차가 스스로를 검증했다.</strong> 1위로 <code>season × t13</code>(202)을 짚었는데
+  그건 전날 <strong>+20.58</strong> 로 회수한 것이고, 2위 <code>pitcher_hand × batter_hand</code>(49.5,
+  상관 <strong>1.00</strong>)는 이미 <code>hand4</code> 로 모델에 있는 것이다. <strong>알려진 정답 둘을 맞혔다.</strong></p>
+
+  <div class="scroll"><table>
+    <thead><tr><th>조합</th><th class="num">강도</th><th class="num">2023</th><th class="num">2024</th><th class="num">상관</th><th class="num">곱</th><th>상태</th></tr></thead>
+    <tbody>
+      <tr class="dead"><td class="mono">pitcher_hand × batter_hand</td><td class="num">49.5</td><td class="num">63.2</td><td class="num">93.0</td><td class="num">1.00</td><td class="num">50</td><td>보유 (hand4)</td></tr>
+      <tr class="hi"><td class="mono">pitcher_team × w5q</td><td class="num">51.8</td><td class="num">152.9</td><td class="num">102.3</td><td class="num">0.76</td><td class="num"><strong>39</strong></td><td><span class="pill p-live">측정 중</span></td></tr>
+      <tr><td class="mono">w5q × wnq</td><td class="num">40.5</td><td class="num">35.6</td><td class="num">36.9</td><td class="num">0.67</td><td class="num">27</td><td>다음 후보</td></tr>
+      <tr><td class="mono">pitcher_hand × pitcher_team</td><td class="num">38.1</td><td class="num">34.9</td><td class="num">50.9</td><td class="num">0.40</td><td class="num">15</td><td>채택 <strong>+7.79</strong></td></tr>
+      <tr><td class="mono">w5q × wb5q</td><td class="num">29.0</td><td class="num">17.3</td><td class="num">17.4</td><td class="num">0.48</td><td class="num">14</td><td>다음 후보</td></tr>
+      <tr class="dead"><td class="mono">pitcher_team × batter_team</td><td class="num">27.8</td><td class="num">120.6</td><td class="num">186.4</td><td class="num warn">−0.14</td><td class="num">—</td><td>기각</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <h3>⚠️ 시즌별 강도가 아니라 상관이 판정 기준이다</h3>
+    <p><code>pitcher_team × batter_team</code> 은 시즌별 강도가 120.6 / 186.4 로 표에서 가장 커 보이지만
+    상관이 <strong>−0.14</strong> 다. 셀당 표본이 적어 생긴 잡음이고, 해를 넘기면 부호가 안 따라온다.
+    강도만 보고 채택하면 <code>wn</code> 세그먼트 상수(−261)와 같은 사고가 난다.</p>
+  </div>
+
+  <p class="lede">도구: <code>tools/eda52.py</code> (원본 범주형 105쌍) · <code>tools/eda54.py</code> (w5_* 교차)</p>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">06 / 발견 사례</span>팀13 — 하루 늦게 찾은 +20.58</h2>
+  <p class="lede">가장 큰 단일 이득이고, <strong>놓쳤다가 되찾은 과정이 이 항목의 절반</strong>이다.</p>
+
+  <p>리더보드 2위가 주최측 Q&amp;A 에 두 파생변수의 합법성을 문의한 글을 보고 우리 데이터로 직접 검증했다.
+  <code>game_type=F</code> 는 100%가 팀13 관여라 전체 시즌표는 착시다. <strong>R 만 보면 명확하다</strong>:</p>
+
+  <pre>R 전용, team13 관여 (커버리지 19.9%)
+  2019 −0.0969   2020 −0.0739   2021 −0.0187   2022 −0.0407
+  2023 <strong>+0.0507</strong>   2024 <strong>+0.0490</strong>
+
+전환점   2023-04 −0.0220  →  2023-05 <strong>+0.0469</strong>
+대칭성   투수측 +0.0513 / 타자측 +0.0467   → 투수 실력이 아니라 <strong>경기 단위</strong> 효과
+팀별 전후변화  13 이 <strong>+0.1074</strong>, 2위 팀이 −0.0249 로 4.3배 차이</pre>
+
+  <div class="callout">
+    <h3>왜 하루를 놓쳤나</h3>
+    <p>전날 구장(홈팀)별 편차를 이미 쟀고 <strong>13 만 t=−8.95 로 혼자 튀었다.</strong>
+    그런데 10개 구장을 <em>평균 내서</em> "std 0.0052 / 인접시즌 상관 0.207 / 천장 2점" 으로 닫았다.<br>
+    <strong>평균과 상관은 하나가 크게 튀는 것을 지운다.</strong>
+    세그먼트 축을 집계 두 숫자로 닫기 전에 반드시 개별 항목의 시계열을 눈으로 볼 것.</p>
+  </div>
+
+  <p>모델이 못 잡은 이유는 세 겹이다 — ① <code>team13 관여</code> 는 두 컬럼의 <strong>OR</strong> 이라
+  대칭트리가 레벨 두 개를 써야 한다 ② 전환점이 <strong>5월</strong>인데 <code>game_month</code> 를 버렸다
+  ③ 6시즌을 뭉치면 4시즌 음수 / 2시즌 양수라 상쇄된다. 2025 에 필요한 건 <strong>양수 체제 하나</strong>뿐이다.</p>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">07 / 규정</span>절대 어기면 안 되는 것</h2>
+  <p class="lede">주최측 공지: "실격 사례도 지속적으로 발생하고 있습니다."
+  <strong>평가 데이터의 각 행은 독립적으로 예측되어야 한다.</strong></p>
+  <ul>
+    <li>행 A 의 예측에 쓸 수 있는 것은 넷뿐 — ① 행 A 의 입력 ② 그것만으로 만든 파생변수
+      ③ 공식 학습 데이터 ④ 학습 데이터만으로 만든 통계·모델</li>
+    <li><strong>test 인접 행 차분은 금지</strong>다 (주최측이 명시적으로 "규칙 위반" 이라 답했다).
+      우리 라벨 복원은 <strong>train 에서만</strong> 하므로 해당 없다.</li>
+    <li><strong>test 전체 평균·분포로 보정하는 것도 금지</strong>다. 세그먼트 상수를 중심화할 때
+      test 평균이 아니라 <strong>학습 빈도</strong>를 쓴 이유가 이것이다.</li>
+    <li>판정 시험: 어떤 행의 예측값이 <em>그 행 1개만 있을 때</em>와 <em>전체가 있을 때</em> 같아야 한다.</li>
+  </ul>
+  <pre>제출 전 필수:  python tools/audit_independence.py &lt;zip&gt;
+현행 실측:     최대 차이 1.11e-16  ✅</pre>
+  <p class="lede">팀13 지시자는 행 자기 컬럼 + train 라벨 통계 상수라 허용 범위 안이고,
+  <strong>CatBoost 는 이미 <code>pitcher_team_id</code> 에 CTR(타겟 인코딩)을 돌린다</strong> —
+  부류상 새로운 것이 아니다. 다만 2위가 문의 중이고 주최측 답변은 아직 없다.</p>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">08 / 닫힌 축</span>다시 파지 말 것</h2>
+  <p class="lede">전부 리더보드 또는 직접 측정으로 닫혔다. 각각 하루씩 썼다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>축</th><th>결과</th><th>왜</th></tr></thead>
+    <tbody>
+      <tr><td>용량 (반복수·깊이·앙상블)</td><td><span class="pill p-dead">−1.47</span></td><td>5분류에서 실측. 트리 700~1000 의 기여가 <strong>0.17점</strong></td></tr>
+      <tr><td>하이퍼파라미터 튜닝</td><td><span class="pill p-dead">기대 0</span></td><td>전달률 0.25 → +13.6 을 얻으려면 홀드아웃 +54 가 필요</td></tr>
+      <tr><td>재스케일링 · isotonic</td><td><span class="pill p-dead">천장 +1.95</span></td><td>λ*≈0.96 로 이미 최적. 산술로 닫힘</td></tr>
+      <tr><td>세그먼트별 재중심화</td><td><span class="pill p-dead">−6.48</span></td><td>네 해 부호 일관인데도 실패. <strong>상수라고 전달률 1.0 이 아니다</strong></td></tr>
+      <tr><td>표적 분할 (다중분류)</td><td><span class="pill p-dead">국소 최적</span></td><td>추가분할 −6.69 / 셔플 −23 / 축소 +1.88 — 세 방향 확인</td></tr>
+      <tr><td>저카디널리티 조합</td><td><span class="pill p-dead">소진</span></td><td>105쌍 전수 + 월간 계단 + 3차 분산. 남은 최고가 phteam 의 1/6</td></tr>
+      <tr><td>캘린더 (월·요일)</td><td><span class="pill p-dead">+0.08</span></td><td>월 단독은 <strong>−10.18</strong>. step1 플래그가 이미 거친 진행도를 준다</td></tr>
+      <tr><td><code>cond_*</code> 섭동</td><td><span class="pill p-dead">−4.75</span></td><td>표본두께 노출과 키 12칸이 <strong>0.007 차이로 같은 자리</strong></td></tr>
+      <tr><td>최근성 가중</td><td><span class="pill p-dead">5연패</span></td><td>드리프트는 <code>season</code>+재중심화가 이미 처리</td></tr>
+      <tr><td>트리 블렌드 · NN · 증류</td><td><span class="pill p-dead">포화</span></td><td>예측 상관이 0.92 아래로 안 내려간다</td></tr>
+      <tr><td>트랙맨 · 구종 · 이적 · 구장</td><td><span class="pill p-dead">닫힘</span></td><td>staleness 77% / 배합은 성향 / 커버리지 3.76% / 시즌상관 0.21</td></tr>
+      <tr><td>한 행 안에서 계산되는 파생</td><td><span class="pill p-dead">구조적</span></td><td>트리가 스스로 만든다. 3번 독립 확인</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <h3>남은 격차의 대부분은 원리적으로 도달 불가능하다</h3>
+    <p>무작위 fold 로 2024 를 예측하면 1,092, 투수×시즌 그룹으로 빼면 791. 현재 홀드아웃이 914 라
+    <strong>178 이 남아 있었다.</strong> 단독 피처로 공정 비교하니:</p>
+    <pre style="margin:10px 0 0">(c) 커리어 누적 = 운영측 asof_pitcher_success_rate      43
+(a) 당해 시즌 진행분 = 우리가 가진 것                  600
+(b) 당해 시즌 전체 = 무작위 fold 가 갖는 것            724
+
+(b) − (a) = <strong>+124</strong>  ← '이 투구 이후를 안다'. test 에는 원리적으로 없다
+(a) − (c) = +557  ← wseason5 이 회수한 몫</pre>
+  </div>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">09 / 운영</span>도구와 함정</h2>
+  <pre>tools/eda52.py · eda54.py       상호작용 전수 스캔  ← 새 후보는 여기서 나온다
+tools/mk_*.py                   노트북 하나를 받아 <strong>한 가지만</strong> 바꾸는 빌더
+tools/audit_independence.py     규정 검증 — 제출 전 필수
+tools/verify_ws_live.py         상수가 script.py 까지 도달하는지 대조군으로 확인
+tools/screen.py                 후보 판정 (지금은 +40 이상 확인용으로만)</pre>
+
+  <p><strong>빌더는 환경변수로 base 를 받는다.</strong> 전부 학습 시작 전에 터지는 가드를 삽입한다 —
+  학습 뒤 셀에서 죽으면 GPU 시간을 통째로 날린다.</p>
+  <pre>TW_BASE=experiments/v10w/aimers_v10wph.ipynb PYTHONUTF8=1 python tools/mk_tmw5.py</pre>
+
+  <ul>
+    <li><strong>가드를 넣을 때 앵커가 실행 순서상 정의 뒤인지 확인할 것.</strong>
+      그걸 안 봐서 세 번 죽었다 (각 3분): 룩업 CSV 검증이 학습보다 앞, <code>Y_CLS</code> 정의보다 앞,
+      EDA 가정(R 전용 20칸)이 학습 범위(F 포함 26칸)와 불일치.</li>
+    <li><strong><code>enable_gpu</code> 와 <code>task_type</code> 은 별개다.</strong>
+      한쪽만 고쳐서 GPU 머신 위에서 CPU 학습이 돌아 <strong>233분</strong>을 태웠다.
+      지금은 로그 첫 줄에 <code>task_type</code> 이 찍힌다.</li>
+    <li><strong>돌고 있는 커널에 재푸시하지 말 것.</strong> 죽이는 경우도 있고 병렬로 남기는 경우도 있다.
+      CLI 에 취소 기능이 없어 웹에서 눌러야 한다.</li>
+    <li><strong>디스크.</strong> 커널 회수물이 판당 870MB. 꽉 차면 멀쩡한 zip 이 손상된 것처럼 보인다.
+      <code>kout_*/model</code> 과 <code>validation_sandbox</code> 는 zip 의 사본이라 지워도 된다.</li>
+    <li><strong>행 순서.</strong> <code>run_full_pipeline</code> 은 <code>time_idx</code> 로 정렬하고 원복하지 않는다.
+      <code>script.py</code> 에서 행별 상수를 붙일 때는 <code>df_proc</code> 을 쓰고 길이 assert 를 박을 것.</li>
+    <li>Windows 에서 <code>kaggle</code> 실행 시 <code>PYTHONUTF8=1</code> 필수. <code>pkill</code> 은 없다.
+      노트북 패치 스크립트는 <strong>파일로 써서 실행</strong> — heredoc 은 이스케이프를 먹는다.</li>
+  </ul>
+</section>
+
+<hr class="rule">
+<section>
+  <h2><span class="n">10 / 남은 이틀</span>현실</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>시점</th><th>할 일</th><th class="num">기대</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-live">지금</span></td><td><code>tmw5</code> 결과 확인 → 양수면 그 위에 <code>phm</code> 스택</td><td class="num up">+5 ~ +20</td></tr>
+      <tr><td><span class="pill p-live">9/1</span></td><td>스캔 2·3순위 (<code>w5q × wnq</code> 곱 27, <code>w5q × wb5q</code> 곱 14)</td><td class="num">각 +3 ~ +8</td></tr>
+      <tr><td><span class="pill p-warn">9/2</span></td><td>09:59 마감. 마지막 제출은 여유를 두고</td><td class="num">—</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <h3>솔직한 전망</h3>
+    <p>격차 13.61 이고 컷이 하루 ~5점 오르니 마감 시점 필요치는 <strong>~27</strong>.
+    <code>tmw5</code> 가 상단(+20)으로 나오면 닿고, 중앙값(+10)이면 못 닿는다.
+    <strong>진입 가능성 30~40%</strong> — 이틀 전 10~15% 에서 올라왔다.</p>
+    <p style="margin-top:10px">올라온 이유는 하나다. <strong>후보를 짐작으로 고르는 대신 전수로 재고
+    시즌간 안정성으로 걸렀다.</strong> 그 전 열흘간 짐작으로 고른 후보는 스무 개 넘게 전부 0 이하였다.</p>
+  </div>
+</section>
+
+<footer>
+  가장 중요한 문서는 <strong>claude.md</strong> 다 — 설계 근거, 실패 기록, 함정이 전부 거기 있다.
+  이 페이지는 그 요약이다. · 저장소 <span class="mono">jaehyeok-roh/LG-Aimers</span> · <span class="mono">aa6035d</span>
+</footer>
+
+</div>
