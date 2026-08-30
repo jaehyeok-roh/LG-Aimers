@@ -129,7 +129,7 @@ footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); colo
 <div class="wrap">
 
 <header>
-  <div class="kicker">LG Aimers 9기 · 인수인계 · 2026-08-31</div>
+  <div class="kicker">LG Aimers 9기 · 인수인계 · 2026-09-01</div>
   <h1>KBO 제구 성공 확률 예측</h1>
   <p class="sub">투구 하나가 제구 성공일 확률을 맞힌다. 평가는 Brier Skill Score.
   train 은 2019~2024, test 는 2025 — <strong>항상 미래 시즌을 예측하는 문제</strong>다.
@@ -139,7 +139,7 @@ footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); colo
     <div class="cellx"><div class="lab">현재 점수</div><div class="val">1,150.26</div><div class="note">v10wph · 8/31</div></div>
     <div class="cellx"><div class="lab">100인 컷</div><div class="val warn">1,163.87</div><div class="note">팀 35위 · 하루 ~5점 상승</div></div>
     <div class="cellx"><div class="lab">격차</div><div class="val">13.61</div><div class="note">마감 시점 ~27 예상</div></div>
-    <div class="cellx"><div class="lab">남은 기간</div><div class="val">2일</div><div class="note">9/2 09:59 마감</div></div>
+    <div class="cellx"><div class="lab">남은 기간</div><div class="val warn">1일</div><div class="note">9/2 09:59 마감</div></div>
   </div>
 
   <div class="gapline">
@@ -160,11 +160,11 @@ footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); colo
   <div class="scroll"><table>
     <thead><tr><th>상태</th><th>대상</th><th>base</th><th class="num">기대</th></tr></thead>
     <tbody>
-      <tr class="hi"><td><span class="pill p-live">돌는 중</span></td>
-        <td><code>aimers-v10wtw</code> — <strong>tmw5</strong> (pitcher_team × 당해시즌 성공률 5분위, 60칸)</td>
-        <td class="mono">v10wph</td><td class="num up">+5 ~ +20</td></tr>
+      <tr class="dead"><td><span class="pill p-dead">실측 −0.36</span></td>
+        <td><code>tmw5</code> (pitcher_team × 당해시즌 성공률 5분위) — <strong>05장 참고</strong></td>
+        <td class="mono">v10wph</td><td class="num">0</td></tr>
       <tr><td><span class="pill p-live">검증 완료</span></td>
-        <td><code>kout_phm/submit_v10wphm.zip</code> — 4분류 스택</td>
+        <td><code>kout_phm/submit_v10wphm.zip</code> — 4분류 스택. <strong>남은 유일한 후보</strong></td>
         <td class="mono">v10wph</td><td class="num">+2</td></tr>
     </tbody>
   </table></div>
@@ -296,13 +296,25 @@ PYTHONUTF8=1 python tools/verify_ws_live.py     kout_tw/submit_v10wtw.zip 600 wb
     <thead><tr><th>조합</th><th class="num">강도</th><th class="num">2023</th><th class="num">2024</th><th class="num">상관</th><th class="num">곱</th><th>상태</th></tr></thead>
     <tbody>
       <tr class="dead"><td class="mono">pitcher_hand × batter_hand</td><td class="num">49.5</td><td class="num">63.2</td><td class="num">93.0</td><td class="num">1.00</td><td class="num">50</td><td>보유 (hand4)</td></tr>
-      <tr class="hi"><td class="mono">pitcher_team × w5q</td><td class="num">51.8</td><td class="num">152.9</td><td class="num">102.3</td><td class="num">0.76</td><td class="num"><strong>39</strong></td><td><span class="pill p-live">측정 중</span></td></tr>
-      <tr><td class="mono">w5q × wnq</td><td class="num">40.5</td><td class="num">35.6</td><td class="num">36.9</td><td class="num">0.67</td><td class="num">27</td><td>다음 후보</td></tr>
+      <tr class="dead"><td class="mono">pitcher_team × w5q</td><td class="num">51.8</td><td class="num">152.9</td><td class="num">102.3</td><td class="num">0.76</td><td class="num">39</td><td>실측 <strong>−0.36</strong></td></tr>
+      <tr class="dead"><td class="mono">w5q × wnq</td><td class="num">40.5</td><td class="num">35.6</td><td class="num">36.9</td><td class="num">0.67</td><td class="num">27</td><td>기각 (수치×수치)</td></tr>
       <tr><td class="mono">pitcher_hand × pitcher_team</td><td class="num">38.1</td><td class="num">34.9</td><td class="num">50.9</td><td class="num">0.40</td><td class="num">15</td><td>채택 <strong>+7.79</strong></td></tr>
-      <tr><td class="mono">w5q × wb5q</td><td class="num">29.0</td><td class="num">17.3</td><td class="num">17.4</td><td class="num">0.48</td><td class="num">14</td><td>다음 후보</td></tr>
+      <tr class="dead"><td class="mono">w5q × wb5q</td><td class="num">29.0</td><td class="num">17.3</td><td class="num">17.4</td><td class="num">0.48</td><td class="num">14</td><td>기각 (수치×수치)</td></tr>
       <tr class="dead"><td class="mono">pitcher_team × batter_team</td><td class="num">27.8</td><td class="num">120.6</td><td class="num">186.4</td><td class="num warn">−0.14</td><td class="num">—</td><td>기각</td></tr>
     </tbody>
   </table></div>
+
+  <div class="callout">
+    <h3>⚠️ 곱이 크다고 이득이 나지 않는다 — 9/1 에 확인됐다</h3>
+    <p><code>pitcher_team × w5q</code> 는 곱이 <strong>39</strong> 로 <code>phteam</code>(15)의 2.6배였는데
+    실측이 <strong>−0.36</strong> 이다. <strong>강도 × 상관은 '신호가 어디 있는가' 만 말하고,
+    이득은 '트리가 그걸 싸게 못 만드는가' 에서 나온다.</strong></p>
+    <pre style="margin:10px 0">t13     곱 202  두 컬럼 OR × 시점, game_month 없음   비용 최대   <strong>+20.58</strong>
+phteam  곱  15  pitcher_hand 중요도 <strong>0.55%</strong>            비쌈       <strong>+7.79</strong>
+tmw5    곱  39  부모가 둘 다 최상위 중요도             <strong>싸다</strong>       <strong>−0.36</strong></pre>
+    <p>표현 비용 순서: <strong>범주 OR × 시점 &gt; 범주 × 범주(한쪽 저사용) &gt; 범주 × 수치 &gt; 수치 × 수치.</strong>
+    남은 스캔 후보 둘은 전부 <strong>수치 × 수치</strong>라 같은 기전으로 죽는다.</p>
+  </div>
 
   <div class="callout">
     <h3>⚠️ 시즌별 강도가 아니라 상관이 판정 기준이다</h3>
@@ -436,25 +448,27 @@ tools/screen.py                 후보 판정 (지금은 +40 이상 확인용으
   <div class="scroll"><table>
     <thead><tr><th>시점</th><th>할 일</th><th class="num">기대</th></tr></thead>
     <tbody>
-      <tr><td><span class="pill p-live">지금</span></td><td><code>tmw5</code> 결과 확인 → 양수면 그 위에 <code>phm</code> 스택</td><td class="num up">+5 ~ +20</td></tr>
-      <tr><td><span class="pill p-live">9/1</span></td><td>스캔 2·3순위 (<code>w5q × wnq</code> 곱 27, <code>w5q × wb5q</code> 곱 14)</td><td class="num">각 +3 ~ +8</td></tr>
+      <tr class="dead"><td><span class="pill p-dead">완료</span></td><td><code>tmw5</code> — 수치형 교차 분기 전체가 닫혔다</td><td class="num">−0.36</td></tr>
+      <tr><td><span class="pill p-live">남음</span></td><td><code>kout_phm/submit_v10wphm.zip</code> — 4분류 스택</td><td class="num">+2</td></tr>
       <tr><td><span class="pill p-warn">9/2</span></td><td>09:59 마감. 마지막 제출은 여유를 두고</td><td class="num">—</td></tr>
     </tbody>
   </table></div>
 
   <div class="callout">
     <h3>솔직한 전망</h3>
-    <p>격차 13.61 이고 컷이 하루 ~5점 오르니 마감 시점 필요치는 <strong>~27</strong>.
-    <code>tmw5</code> 가 상단(+20)으로 나오면 닿고, 중앙값(+10)이면 못 닿는다.
-    <strong>진입 가능성 30~40%</strong> — 이틀 전 10~15% 에서 올라왔다.</p>
-    <p style="margin-top:10px">올라온 이유는 하나다. <strong>후보를 짐작으로 고르는 대신 전수로 재고
-    시즌간 안정성으로 걸렀다.</strong> 그 전 열흘간 짐작으로 고른 후보는 스무 개 넘게 전부 0 이하였다.</p>
+    <p>가장 큰 카드였던 <code>tmw5</code> 가 0 이었고, 같은 분기의 남은 둘은 더 싼 형태라
+    같은 기전으로 죽는다. <strong>손에 남은 것은 <code>phm</code>(+2) 하나다.</strong>
+    격차 13.61 에 컷은 계속 오르니 <strong>진입 가능성은 5% 아래</strong>로 본다.
+    <strong>1,150.26 이 최종일 가능성이 높다.</strong></p>
+    <p style="margin-top:10px">그래도 8/30 아침 +41.98 에서 여기까지 왔고, 그 +28.4 는 전부
+    05장의 절차에서 나왔다. <strong>남길 것은 점수가 아니라 그 절차와, 곱이 아니라
+    표현 비용이 이득을 정한다는 정정이다.</strong></p>
   </div>
 </section>
 
 <footer>
   가장 중요한 문서는 <strong>claude.md</strong> 다 — 설계 근거, 실패 기록, 함정이 전부 거기 있다.
-  이 페이지는 그 요약이다. · 저장소 <span class="mono">jaehyeok-roh/LG-Aimers</span> · <span class="mono">aa6035d</span>
+  이 페이지는 그 요약이다. · 저장소 <span class="mono">jaehyeok-roh/LG-Aimers</span> · <span class="mono">최신</span>
 </footer>
 
 </div>
