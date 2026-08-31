@@ -267,3 +267,4 @@ kout_*/
 kpush*/
 # screen.py 의 캐글용 기계적 사본 (mk_kscreen 의 KS_FILES 로 실어 보낸다)
 tools/scr.py
+scratch_*
