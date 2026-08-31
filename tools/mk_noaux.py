@@ -70,7 +70,7 @@ GUARD = '''
 # ---- noaux 검증 (학습 전에 터뜨린다, 4-12) ----
 assert AUX_TARGETS == {TGT!r}, AUX_TARGETS
 _ax = sorted(c for c in X_full.columns if c.startswith("aux_"))
-assert _ax == ["aux_" + t for t in AUX_TARGETS], _ax
+assert _ax == sorted("aux_" + t for t in AUX_TARGETS), _ax   # 양쪽 다 정렬할 것
 _sf = json.load(open("model/selected_features.json"))
 assert sorted(c for c in _sf if c.startswith("aux_")) == _ax, "selected_features 불일치"
 assert len(_sf) == X_full.shape[1], (len(_sf), X_full.shape[1])

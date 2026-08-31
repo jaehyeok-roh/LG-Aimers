@@ -43,6 +43,12 @@ SPEC = {
     # `optbest` 교훈: 다른 파라미터 영역의 효과는 안 옮겨지고 그때는 부호까지 뒤집혔다.
     'depth7': ('BEST_PARAMS["depth"] = 7   # 8 -> 7 (mk_param)',
                'depth 8 -> 7', 'v10wd7'),
+    # 보조 모델은 300트리인데 본 모델은 1000이다. 이 값은 aux_rev 를 도입한
+    # **이진 타겟 시절**(v10wa)에 정해진 뒤 한 번도 안 건드렸다.
+    # `na` 의 -3.53 이 'aux_rev 는 더 잘 추정된 P(reverse) 라서 값어치가 있다' 를
+    # 증명했으므로, 그 추정을 더 잘 하면 더 나올 여지가 있다. 학습 행은 OOF,
+    # 추론 행은 폴드 평균이라 용량을 키워도 누수 구조는 그대로다.
+    'auxit': ('AUX_ITERS = 1000', 'AUX_ITERS 300 -> 1000 (보조모델 용량)', 'v10wai'),
     'newton': ('BEST_PARAMS["score_function"] = "L2"   # Cosine -> L2 (mk_param)',
                'score_function Cosine -> L2', 'v10wnt'),
 }
@@ -83,6 +89,9 @@ if WHAT == 'f30':
 elif WHAT == 'seed10':
     A = 'SEEDS = [42, 202, 2024]'
     sub(find(A), A, LINE.split('   #')[0])
+elif WHAT == 'auxit':
+    A = 'AUX_ITERS = 300'
+    sub(find(A), A, LINE)
 elif WHAT == 'newton':
     A = 'BEST_PARAMS["cat_features"] = cat_features'
     sub(find(A), A, LINE + '\n' + A)
@@ -100,6 +109,7 @@ CHK = {'depth9': 'assert BEST_PARAMS["depth"] == 9, BEST_PARAMS["depth"]',
        'seed10': 'assert len(SEEDS) == 10 and len(set(SEEDS)) == 10, SEEDS',
        'it1400': 'assert BEST_PARAMS["iterations"] == 1400, BEST_PARAMS["iterations"]',
        'newton': 'assert BEST_PARAMS["score_function"] == "L2", BEST_PARAMS',
+       'auxit': 'assert AUX_ITERS == 1000, AUX_ITERS',
        'f30': ('assert N_SPLITS == 30 and SEEDS == [42], (N_SPLITS, SEEDS)\n'
                'assert N_SPLITS * len(SEEDS) == 30, "모델 30개 유지가 전제다"')
        }[WHAT]
@@ -109,8 +119,15 @@ GUARD = '''
 print(f"파라미터 확인: depth={BEST_PARAMS['depth']} / iters={BEST_PARAMS['iterations']} / seeds={len(SEEDS)}")
 
 ''' % (DESC, CHK)
-ANC = 'print("최종 파라미터:", BEST_PARAMS)'
-sub(find(ANC), ANC, GUARD + ANC)
+# ⚠️ auxit 의 가드는 AUX_ITERS 를 참조하는데 그 정의는 '최종 파라미터' 줄보다
+#    **아래**에 있다 (aux 블록). 앵커를 나눠야 한다 -- 오늘 d9/t16/na 를 죽인 유형이고
+#    nbcheck 가 잡은 7번째 사례다.
+if WHAT == 'auxit':
+    ANC = 'print("  검산 OK: 클래스0 개수 == success 개수")'
+    sub(find(ANC), ANC, ANC + '\n' + GUARD)
+else:
+    ANC = 'print("최종 파라미터:", BEST_PARAMS)'
+    sub(find(ANC), ANC, GUARD + ANC)
 sub(find(OLDZIP), OLDZIP, ZIP)
 
 for i in code:
