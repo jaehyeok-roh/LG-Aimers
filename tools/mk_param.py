@@ -31,6 +31,13 @@ SPEC = {
     # 그리고 '데이터 양이 최신성을 이긴다' 는 이 프로젝트에서 한 번도 안 진 방향이다.
     'f30': (None, 'fold 10x3seed -> 30x1seed (모델 30개 유지, 학습분 90.0% -> 96.7%)',
             'v10wf30'),
+    # score_function 은 **분할을 고르는 기준** 자체다 (샘플링도 트리 모양도 아니다).
+    # claude.md 에 한 번도 안 나오고 Optuna 탐색 공간에도 없었다. 남은 GPU 손잡이 중
+    # 유일하게 두 논거가 **덮지 못하는** 축이다 —
+    #   '추정 효율은 148만 행에서 죽는다' (MVS +5.17 -> -2.95)  -> 샘플링 계열 전부 사망
+    #   '구조 변형은 더 나쁘다' (Lossguide 731 vs 대칭 803)      -> grow_policy 사망
+    'newton': ('BEST_PARAMS["score_function"] = "L2"   # Cosine -> L2 (mk_param)',
+               'score_function Cosine -> L2', 'v10wnt'),
 }
 if WHAT not in SPEC:
     sys.exit('PAR_WHAT 은 %s 중 하나' % list(SPEC))
@@ -69,6 +76,9 @@ if WHAT == 'f30':
 elif WHAT == 'seed10':
     A = 'SEEDS = [42, 202, 2024]'
     sub(find(A), A, LINE.split('   #')[0])
+elif WHAT == 'newton':
+    A = 'BEST_PARAMS["cat_features"] = cat_features'
+    sub(find(A), A, LINE + '\n' + A)
 elif WHAT == 'depth9':
     A = 'BEST_PARAMS["cat_features"] = cat_features'
     sub(find(A), A, LINE + '\n' + A)
@@ -81,6 +91,7 @@ print('%s 적용' % DESC)
 CHK = {'depth9': 'assert BEST_PARAMS["depth"] == 9, BEST_PARAMS["depth"]',
        'seed10': 'assert len(SEEDS) == 10 and len(set(SEEDS)) == 10, SEEDS',
        'it1400': 'assert BEST_PARAMS["iterations"] == 1400, BEST_PARAMS["iterations"]',
+       'newton': 'assert BEST_PARAMS["score_function"] == "L2", BEST_PARAMS',
        'f30': ('assert N_SPLITS == 30 and SEEDS == [42], (N_SPLITS, SEEDS)\n'
                'assert N_SPLITS * len(SEEDS) == 30, "모델 30개 유지가 전제다"')
        }[WHAT]
