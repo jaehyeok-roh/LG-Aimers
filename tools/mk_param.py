@@ -24,6 +24,13 @@ SPEC = {
                'seed 3 -> 10 (모델 30 -> 100)', 'v10ws10'),
     'it1400': ('BEST_PARAMS["iterations"] = 1400   # 1000 -> 1400 (mk_param)',
                'iterations 1000 -> 1400', 'v10wi14'),
+    # fold 수는 이 프로젝트에서 **한 번도 안 잰 축**이다. 재본 것은 반복수·깊이·seed 수뿐.
+    # 30 fold x 1 seed 는 모델 수가 30 으로 같아 GPU 시간이 같은데, 각 모델의 학습
+    # 데이터가 90.0% -> 96.7% 로 **7.4% 늘어난다.** 다양성을 데이터로 바꾸는 것이고,
+    # 근거는 seed 3->10 (-1.26) 이 이미 '앙상블 다양성은 포화' 를 보였다는 것이다.
+    # 그리고 '데이터 양이 최신성을 이긴다' 는 이 프로젝트에서 한 번도 안 진 방향이다.
+    'f30': (None, 'fold 10x3seed -> 30x1seed (모델 30개 유지, 학습분 90.0% -> 96.7%)',
+            'v10wf30'),
 }
 if WHAT not in SPEC:
     sys.exit('PAR_WHAT 은 %s 중 하나' % list(SPEC))
@@ -54,7 +61,12 @@ def find(a):
     return h[0]
 
 
-if WHAT == 'seed10':
+if WHAT == 'f30':
+    A, B = 'N_SPLITS = 10', 'SEEDS = [42, 202, 2024]'
+    i = find(A)
+    sub(i, A, 'N_SPLITS = 30')
+    sub(i, B, 'SEEDS = [42]')
+elif WHAT == 'seed10':
     A = 'SEEDS = [42, 202, 2024]'
     sub(find(A), A, LINE.split('   #')[0])
 elif WHAT == 'depth9':
@@ -68,7 +80,10 @@ print('%s 적용' % DESC)
 # 학습 전 가드 — 의도한 값이 실제로 반영됐는지 (조용히 무시되는 사고 방지, 4-6)
 CHK = {'depth9': 'assert BEST_PARAMS["depth"] == 9, BEST_PARAMS["depth"]',
        'seed10': 'assert len(SEEDS) == 10 and len(set(SEEDS)) == 10, SEEDS',
-       'it1400': 'assert BEST_PARAMS["iterations"] == 1400, BEST_PARAMS["iterations"]'}[WHAT]
+       'it1400': 'assert BEST_PARAMS["iterations"] == 1400, BEST_PARAMS["iterations"]',
+       'f30': ('assert N_SPLITS == 30 and SEEDS == [42], (N_SPLITS, SEEDS)\n'
+               'assert N_SPLITS * len(SEEDS) == 30, "모델 30개 유지가 전제다"')
+       }[WHAT]
 GUARD = '''
 # ---- %s 검증 (학습 전에 터뜨린다, 4-12) ----
 %s
