@@ -36,6 +36,13 @@ SPEC = {
     # 유일하게 두 논거가 **덮지 못하는** 축이다 —
     #   '추정 효율은 148만 행에서 죽는다' (MVS +5.17 -> -2.95)  -> 샘플링 계열 전부 사망
     #   '구조 변형은 더 나쁘다' (Lossguide 731 vs 대칭 803)      -> grow_policy 사망
+    # 깊이는 v4 Optuna 가 **이진 96피처**에서 고른 값이고, 5분류로는 어느 base 에서도
+    # 리더보드로 잰 적이 없다 (반복수만 n700 -1.47 로 쟀다). 5분류는 잎마다 5차원 값을
+    # 내므로 잎당 정보량이 이진과 달라 최적 깊이가 다를 이유가 있다. 그리고 CPU Optuna 는
+    # depth 6 을 골랐었다 -- 얕은 쪽 사전값이 있는데 한 번도 안 재봤다.
+    # `optbest` 교훈: 다른 파라미터 영역의 효과는 안 옮겨지고 그때는 부호까지 뒤집혔다.
+    'depth7': ('BEST_PARAMS["depth"] = 7   # 8 -> 7 (mk_param)',
+               'depth 8 -> 7', 'v10wd7'),
     'newton': ('BEST_PARAMS["score_function"] = "L2"   # Cosine -> L2 (mk_param)',
                'score_function Cosine -> L2', 'v10wnt'),
 }
@@ -79,7 +86,7 @@ elif WHAT == 'seed10':
 elif WHAT == 'newton':
     A = 'BEST_PARAMS["cat_features"] = cat_features'
     sub(find(A), A, LINE + '\n' + A)
-elif WHAT == 'depth9':
+elif WHAT in ('depth9', 'depth7'):
     A = 'BEST_PARAMS["cat_features"] = cat_features'
     sub(find(A), A, LINE + '\n' + A)
 else:
@@ -89,6 +96,7 @@ print('%s 적용' % DESC)
 
 # 학습 전 가드 — 의도한 값이 실제로 반영됐는지 (조용히 무시되는 사고 방지, 4-6)
 CHK = {'depth9': 'assert BEST_PARAMS["depth"] == 9, BEST_PARAMS["depth"]',
+       'depth7': 'assert BEST_PARAMS["depth"] == 7, BEST_PARAMS["depth"]',
        'seed10': 'assert len(SEEDS) == 10 and len(set(SEEDS)) == 10, SEEDS',
        'it1400': 'assert BEST_PARAMS["iterations"] == 1400, BEST_PARAMS["iterations"]',
        'newton': 'assert BEST_PARAMS["score_function"] == "L2", BEST_PARAMS',
