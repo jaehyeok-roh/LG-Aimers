@@ -54,6 +54,7 @@ def find(a):
 
 
 FC = (" | (df_proc['game_type'].astype(str) == 'F')") if USE_F else ""
+GFC = (" | (_gts == 'F')") if USE_F else ""
 A1 = "    df_proc['cnt12'] = (b.astype(int).astype(str) + '-' + s.astype(int).astype(str))"
 N1 = A1 + """
     # 팀%d x %d-%02d 체제 전환. 두 컬럼의 OR 이라 대칭트리는 레벨 두 개를 써야 만든다
@@ -86,13 +87,19 @@ _sea = df_processed["season"].astype("int64").to_numpy()
 print(f"  %s 커버리지 {_t.mean():.4f}")
 assert 0.15 < _t.mean() < 0.40, _t.mean()
 assert (_p <= _t).all(), "post 가 본체를 넘는다"
-# 마지막 학습 시즌은 전부 전환 후여야 한다 (2025 도 그렇게 된다)
-_ml = _sea == int(_sea.max())
-assert (_p[_ml] == _t[_ml]).all(), "마지막 시즌에서 post != 본체"
+# post 마스크를 여기서 다시 계산해 정확히 대조한다.
+# (t13 은 전환이 2023 이라 마지막 시즌 2024 가 전부 post 였지만, 전환이
+#  마지막 학습 시즌 **안**에 있으면 그 시즌은 전/후가 섞인다. 2025 는 어느
+#  쪽이든 전부 post 이므로 피처로서는 동일하게 유효하다.)
+_mon = df_processed["game_month"].astype("int64").to_numpy()
+_gts = df_processed["game_type"].astype(str).to_numpy()
+_exp = _t.astype(bool) & ((_sea > %d) | ((_sea == %d) & ((_mon >= %d)%s)))
+assert (_p.astype(bool) == _exp).all(), "post 마스크가 재계산과 다르다"
 assert _p[_sea < %d].sum() == 0, "전환 연도 이전에 post 가 있다"
+print(f"  post 비율 {_p.mean():.4f} | 마지막시즌 {_p[_sea == _sea.max()].mean():.4f}")
 print(f"%s 검증 OK | 피처 {X_full.shape[1]}개")
 
-''' % (TAG, TAG, TAG, TAG, TAG, TAG, YEAR, TAG)
+''' % (TAG, TAG, TAG, TAG, TAG, TAG, YEAR, YEAR, MONTH, GFC, YEAR, TAG)
 ANC = 'print("최종 파라미터:", BEST_PARAMS)'
 sub(find(ANC), ANC, GUARD + ANC)
 print('자체 검증 셀 삽입 (학습 전)')

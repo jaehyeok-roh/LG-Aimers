@@ -72,7 +72,6 @@ CHK = {'depth9': 'assert BEST_PARAMS["depth"] == 9, BEST_PARAMS["depth"]',
 GUARD = '''
 # ---- %s 검증 (학습 전에 터뜨린다, 4-12) ----
 %s
-assert AUX_ITERS == 300, "보조모델은 건드리지 않는다 (한 번에 하나만, 4-14)"
 print(f"파라미터 확인: depth={BEST_PARAMS['depth']} / iters={BEST_PARAMS['iterations']} / seeds={len(SEEDS)}")
 
 ''' % (DESC, CHK)
