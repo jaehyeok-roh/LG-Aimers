@@ -240,7 +240,6 @@ screen_out/
 v6_out/
 tmdyn_out/
 tmdyn6/
-screen_out/
 .kernels/
 topt_out/
 zipsds/
@@ -250,16 +249,17 @@ zipsds/
 # 스크리너 캐시 (X.pkl 835MB)
 cache/
 # 캐글 커널 회수물
-kaggle_output/
 # 제출 zip 조립 · 로컬 실행 로그
 out/
 # 옛 산출물
 archive/
 # 원본 데이터 (주최측 배포)
-data/
 # 학습 산출물 — 룩업 테이블만 예외
 model/
 !model/tskill_table.csv
+!model/gold_batter_map.csv
+# 트랙맨 1:1 정렬 중간 산출물 21MB. tools/eda18.py · eda19.py 로 재생성한다
+ds_aligned/*.parquet
 
 # 캐글 커널 회수물 (모델 30개 + 제출 zip, 수 GB. 커널 재실행으로 재생성 가능)
 kout_*/
