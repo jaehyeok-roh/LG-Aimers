@@ -260,7 +260,7 @@ for c in C:
 json.dump(nb, open(f'{D}/aimers_s1{TAG}.ipynb', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 meta = json.load(open('kernel-metadata.json'))
-meta.update(id=f'homekeggle/aimers-s1{TAG}', title=f'aimers-s1{TAG}',
+meta.update(id=f'your-kaggle-id/aimers-s1{TAG}', title=f'aimers-s1{TAG}',
             code_file=f'aimers_s1{TAG}.ipynb')
 json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
 print(f'{D}/aimers_s1{TAG}.ipynb 생성 — 전 셀 문법 OK')

@@ -65,7 +65,7 @@ def _recover_labels(df, keys):
     ⚠️ (pitcher_id, asof_pitcher_n) 정렬이 전제다 — df_processed 는 time_idx 로
        정렬돼 있다 (claude.md 4-15). success 로 검산해 틀리면 즉시 중단한다.
     ⚠️ 규정: 차분은 train 에서만. test 인접 행 차분은 주최측이 "규칙 위반" 이라
-       답한 사안이다 (2jin1 08-17). train 유래 값에는 제약이 없다 (DACON.GM 08-19).
+       답한 사안이다 (다른 참가자 08-17). train 유래 값에는 제약이 없다 (DACON.GM 08-19).
     """
     n = df["asof_pitcher_n"].to_numpy(dtype="float64")
     g = df["pitcher_id"].to_numpy()

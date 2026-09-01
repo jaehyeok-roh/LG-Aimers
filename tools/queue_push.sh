@@ -9,7 +9,7 @@
 cd /c/Users/nojh4/github/LG-Aimers
 
 st() {
-  PYTHONUTF8=1 kaggle kernels status "homekeggle/aimers-$1" 2>/dev/null \
+  PYTHONUTF8=1 kaggle kernels status "your-kaggle-id/aimers-$1" 2>/dev/null \
     | tr -d '\r' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2
 }
 

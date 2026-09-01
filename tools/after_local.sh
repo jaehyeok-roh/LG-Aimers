@@ -36,7 +36,7 @@ kaggle datasets version -p "$DS" -m "add local_cpu $(date +%m%d-%H%M)" 2>&1 | ta
 
 n=0
 while true; do
-  s=$(kaggle datasets status homekeggle/aimers-zips 2>&1 | tr -d '\r')
+  s=$(kaggle datasets status your-kaggle-id/aimers-zips 2>&1 | tr -d '\r')
   echo "  데이터셋 상태: $s"
   case "$s" in ready*) break;; esac
   n=$((n + 1))
@@ -46,4 +46,4 @@ done
 
 python tools/mk_kcorr.py submit_local_cpu.zip submit_v9m.zip submit_s1lr.zip || exit 1
 cd .kernels/kcorr && kaggle kernels push -p . 2>&1 | tail -2
-echo "[$(date +%H:%M)] 커널 push 완료 — homekeggle/aimers-kcorr"
+echo "[$(date +%H:%M)] 커널 push 완료 — your-kaggle-id/aimers-kcorr"

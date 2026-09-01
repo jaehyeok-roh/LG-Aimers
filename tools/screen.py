@@ -1413,7 +1413,7 @@ def cv_predict_soft(Xh, yh, ysoft, Xv, params, cat, folds=FOLDS):
 def _distill_target(ctx, alpha=1.0, teacher_iters=1000):
     """★ LUPI 증류 — teacher 가 그 투구의 트랙맨을 보고, student 는 그 확률을 배운다.
 
-    주최측 확인 (aimers_qna.md, seopseopi 08-17 -> DACON.GM 08-19):
+    주최측 확인 (aimers_qna.md, 참가자 질의 08-17 -> DACON.GM 08-19):
       Q1 "train x trackman 매칭 부분집합에서 teacher(현재 투구 구종·TrackMan 포함)를
           학습하고 student 는 pre-pitch 만 받아 증류. 제출은 student 만."
       Q3 "매칭이 **부분적**일 때도 동일하게 허용되는가"
@@ -1817,7 +1817,7 @@ def _fail_labels():
     성공 행에서 middle/reverse 는 정확히 0 이다 (실패에서만 발생, 완전 중첩).
 
     ⚠️ 규정: 차분은 **train 에서만** 한다. test 에서 인접 행을 차분하는 것은
-       주최측이 명시적으로 '규칙 위반' 이라 답한 사안이다 (2jin1 08-17).
+       주최측이 명시적으로 '규칙 위반' 이라 답한 사안이다 (다른 참가자 08-17).
        train 유래 값에는 제약이 없다 (DACON.GM 08-19).
     ⚠️ 행 순서: 반드시 (pitcher_id, asof_pitcher_n) 으로 정렬해야 한다.
        run_full_pipeline 은 time_idx 로 정렬하고 원복하지 않는다 (claude.md 4-15).

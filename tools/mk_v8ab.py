@@ -195,7 +195,7 @@ drop_cols += DROP_CAL        # 절개 실험: 변형 m 에서만 비어있지 �
     json.dump(nb, open(f'{D}/aimers_{PREFIX}{tag}.ipynb', 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     meta = json.load(open('kernel-metadata.json'))
-    meta.update(id=f'homekeggle/aimers-{PREFIX}{tag}', title=f'aimers-{PREFIX}{tag}',
+    meta.update(id=f'your-kaggle-id/aimers-{PREFIX}{tag}', title=f'aimers-{PREFIX}{tag}',
                 code_file=f'aimers_{PREFIX}{tag}.ipynb')
     json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
     print(f'{D}/aimers_{PREFIX}{tag}.ipynb  —  DROP_CAL={drop_cal} DECAY={decay} '

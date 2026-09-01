@@ -8,7 +8,8 @@ cd /c/Users/nojh4/github/LG-Aimers
 # 밤새 슬롯이 없어 못 올라간 커널이 있으면 먼저 올린다
 echo "===== 미실행 커널 push ====="
 for k in ktsk; do
-  st=$(PYTHONUTF8=1 kaggle kernels status homekeggle/aimers-$k 2>/dev/null | tr -d '' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2)
+  st=$(PYTHONUTF8=1 kaggle kernels status your-kaggle-id/aimers-$k 2>/dev/null | tr -d '
+' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2)
   if [ "$st" != "RUNNING" ] && [ ! -f "kaggle_output/$k/aimers-$k.log" ]; then
     (cd ".kernels/$k" && PYTHONUTF8=1 kaggle kernels push -p . 2>&1 | tail -1)
   fi
@@ -16,7 +17,7 @@ done
 
 echo "===== 커널 상태 ====="
 for k in cpua cpub cpuc kgt1 kgt2 ktsk k23 kbat; do
-  s=$(PYTHONUTF8=1 kaggle kernels status homekeggle/aimers-$k 2>/dev/null \
+  s=$(PYTHONUTF8=1 kaggle kernels status your-kaggle-id/aimers-$k 2>/dev/null \
       | tr -d '\r' | grep -o 'KernelWorkerStatus\.[A-Z]*' | cut -d. -f2)
   printf '  %-6s %s\n' "$k" "${s:-없음}"
   # 디렉터리 존재만 보면 안 된다 — 종료로 중단된 부분 다운로드가 남아 있을 수 있다.
@@ -24,7 +25,7 @@ for k in cpua cpub cpuc kgt1 kgt2 ktsk k23 kbat; do
   if [ "$s" = "COMPLETE" ] && [ ! -f "kaggle_output/$k/aimers-$k.log" ]; then
     rm -rf "kaggle_output/$k"
     mkdir -p "kaggle_output/$k"
-    PYTHONUTF8=1 kaggle kernels output "homekeggle/aimers-$k" -p "kaggle_output/$k" >/dev/null 2>&1
+    PYTHONUTF8=1 kaggle kernels output "your-kaggle-id/aimers-$k" -p "kaggle_output/$k" >/dev/null 2>&1
     echo "         ↳ 받음"
   fi
 done

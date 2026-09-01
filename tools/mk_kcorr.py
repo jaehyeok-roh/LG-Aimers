@@ -1,7 +1,7 @@
 # 예측 상관 측정을 **캐글 CPU 커널**로 돌린다 (로컬 CPU 를 쉬게 한다).
 #
-# 제출 zip 들은 `homekeggle/aimers-zips` 데이터셋으로 올리고, train.csv/트랙맨은
-# 기존 `homekeggle/aimers` 를 그대로 쓴다. pred_corr.py 를 base64 로 심어
+# 제출 zip 들은 `your-kaggle-id/aimers-zips` 데이터셋으로 올리고, train.csv/트랙맨은
+# 기존 `your-kaggle-id/aimers` 를 그대로 쓴다. pred_corr.py 를 base64 로 심어
 # 로컬에서 검증된 **같은 코드**가 돌게 한다.
 #
 # 사용: python tools/mk_kcorr.py submit_local_cpu.zip submit_v9m.zip ...
@@ -9,7 +9,7 @@
 import ast, base64, json, os, sys
 
 TAG = os.environ.get('KC_TAG', 'kcorr')
-DS = os.environ.get('KC_DS', 'homekeggle/aimers-zips')
+DS = os.environ.get('KC_DS', 'your-kaggle-id/aimers-zips')
 NAMES = sys.argv[1:] or ['submit_local_cpu.zip', 'submit_v9m.zip', 'submit_s1lr.zip']
 ROWS = os.environ.get('KC_ROWS', '150000')
 
@@ -82,8 +82,8 @@ os.makedirs(D, exist_ok=True)
 json.dump(out, open(f'{D}/aimers_{TAG}.ipynb', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 meta = json.load(open('kernel-metadata.json'))
-meta.update(id=f'homekeggle/aimers-{TAG}', title=f'aimers-{TAG}',
+meta.update(id=f'your-kaggle-id/aimers-{TAG}', title=f'aimers-{TAG}',
             code_file=f'aimers_{TAG}.ipynb', enable_gpu=False,
-            dataset_sources=['homekeggle/aimers', DS])
+            dataset_sources=['your-kaggle-id/aimers', DS])
 json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
 print(f'{D}/aimers_{TAG}.ipynb — zip {NAMES}, {ROWS}행, enable_gpu=False, 문법 OK')

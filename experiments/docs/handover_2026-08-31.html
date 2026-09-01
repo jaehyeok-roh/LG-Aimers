@@ -170,7 +170,7 @@ footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); colo
   </table></div>
 
   <p><strong>커널이 끝나면 항상 이 순서다.</strong> 검증 셋 중 하나라도 실패하면 올리지 않는다.</p>
-  <pre>mkdir -p kout_tw &amp;&amp; PYTHONUTF8=1 kaggle kernels output homekeggle/aimers-v10wtw -p kout_tw
+  <pre>mkdir -p kout_tw &amp;&amp; PYTHONUTF8=1 kaggle kernels output your-kaggle-id/aimers-v10wtw -p kout_tw
 
 PYTHONUTF8=1 python tools/audit_independence.py kout_tw/submit_v10wtw.zip        # 행 독립 (규정)
 PYTHONUTF8=1 python tools/verify_ws_live.py     kout_tw/submit_v10wtw.zip 600 ws_  # 투수측 상수 생존
@@ -331,7 +331,7 @@ tmw5    곱  39  부모가 둘 다 최상위 중요도             <strong>싸�
   <h2><span class="n">06 / 발견 사례</span>팀13 — 하루 늦게 찾은 +20.58</h2>
   <p class="lede">가장 큰 단일 이득이고, <strong>놓쳤다가 되찾은 과정이 이 항목의 절반</strong>이다.</p>
 
-  <p>리더보드 2위가 주최측 Q&amp;A 에 두 파생변수의 합법성을 문의한 글을 보고 우리 데이터로 직접 검증했다.
+  <p>다른 참가자가 주최측 Q&amp;A 에 두 파생변수의 합법성을 문의한 글을 보고 우리 데이터로 직접 검증했다.
   <code>game_type=F</code> 는 100%가 팀13 관여라 전체 시즌표는 착시다. <strong>R 만 보면 명확하다</strong>:</p>
 
   <pre>R 전용, team13 관여 (커버리지 19.9%)
@@ -373,7 +373,7 @@ tmw5    곱  39  부모가 둘 다 최상위 중요도             <strong>싸�
 현행 실측:     최대 차이 1.11e-16  ✅</pre>
   <p class="lede">팀13 지시자는 행 자기 컬럼 + train 라벨 통계 상수라 허용 범위 안이고,
   <strong>CatBoost 는 이미 <code>pitcher_team_id</code> 에 CTR(타겟 인코딩)을 돌린다</strong> —
-  부류상 새로운 것이 아니다. 다만 2위가 문의 중이고 주최측 답변은 아직 없다.</p>
+  부류상 새로운 것이 아니다. 다만 해당 참가자가 문의 중이고 주최측 답변은 아직 없다.</p>
 </section>
 
 <hr class="rule">

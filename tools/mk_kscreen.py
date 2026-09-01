@@ -116,7 +116,7 @@ os.makedirs(D, exist_ok=True)
 json.dump(out, open(f'{D}/aimers_{TAG}.ipynb', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 meta = json.load(open('kernel-metadata.json'))
-meta.update(id=f'homekeggle/aimers-{TAG}', title=f'aimers-{TAG}',
+meta.update(id=f'your-kaggle-id/aimers-{TAG}', title=f'aimers-{TAG}',
             code_file=f'aimers_{TAG}.ipynb', enable_gpu=USE_GPU)
 # ⚠️ 기본은 CPU (쿼터 안 씀, 동시 5개). 다중분류는 CPU 가 25배 느려서
 #    (5분류 3폴드에 400분) KS_GPU=1 로 켤 것. 단 GPU 는 기본값이 달라

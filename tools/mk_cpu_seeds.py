@@ -85,7 +85,7 @@ for tag, seed in TAGS.items():
     json.dump(nb, open(f'{D}/{name}.ipynb', 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     meta = json.load(open('kernel-metadata.json'))
-    meta.update(id=f'homekeggle/aimers-{PFX}{tag}', title=f'aimers-{PFX}{tag}',
+    meta.update(id=f'your-kaggle-id/aimers-{PFX}{tag}', title=f'aimers-{PFX}{tag}',
                 code_file=f'{name}.ipynb', enable_gpu=False)
     json.dump(meta, open(f'{D}/kernel-metadata.json', 'w'), indent=2)
     print(f'{D}/{name}.ipynb — seed {seed}, CPU, 문법 OK')
