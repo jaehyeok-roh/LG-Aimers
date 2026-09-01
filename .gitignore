@@ -256,8 +256,8 @@ archive/
 # 원본 데이터 (주최측 배포)
 # 학습 산출물 — 룩업 테이블만 예외
 model/
-!model/tskill_table.csv
-!model/gold_batter_map.csv
+# model/ 은 전부 대회 데이터에서 파생된 산출물이라 추적하지 않는다.
+# (룩업 테이블·투수별 집계 모두 재생성 가능하고, data/ 를 제외한 것과 같은 이유)
 # 트랙맨 1:1 정렬 중간 산출물 21MB. tools/eda18.py · eda19.py 로 재생성한다
 ds_aligned/*.parquet
 
