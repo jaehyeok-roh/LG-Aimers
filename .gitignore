@@ -273,3 +273,7 @@ scratch_*
 deck/solution.pdf
 deck/_new.pdf
 deck/_ovcheck.html
+
+# 팀원 연락처가 들어 있다. 저장소를 퍼블릭으로 돌릴 계획이므로 추적하지 않는다.
+# (제출용 실물은 로컬 submission/ 에 그대로 있다)
+submission/05_Phase3_참가여부.md
