@@ -178,7 +178,7 @@ if len(seasons) >= 2:
     print('\n② 연도 간 이행  %s -> %s' % (P, Y))
     print('%-26s%12s%10s' % ('지표', '상관', '투수수'))
     tr_rows = {}
-    for lo in (100, 300, 500):
+    for lo in (50, 100, 150, 200, 300, 500, 800):
         k = j[(j['size_p'] >= lo) & (j['size_y'] >= lo)]
         if len(k) < 20:
             continue
@@ -276,7 +276,7 @@ json.dump(RES, open(os.path.join(OUTD, 'cae_metrics.json'), 'w'),
 for _s, _d in CAE.items():
     t = _d.groupby('pitcher_id').agg(
         n=('resid', 'size'), cae=('resid', 'mean'), raw=('y', 'mean'),
-        exp=('exp_sit', 'mean')).query('n >= 300').sort_values('cae', ascending=False)
+        exp=('exp_sit', 'mean')).query('n >= 100').sort_values('cae', ascending=False)
     t.to_csv(os.path.join(OUTD, 'cae_pitchers_%s.csv' % _s), encoding='utf-8')
     print('out/cae_pitchers_%s.csv  투수 %d명' % (_s, len(t)))
 tab = pd.read_csv(os.path.join(OUTD, 'cae_pitchers_%s.csv' % Y), index_col=0)
