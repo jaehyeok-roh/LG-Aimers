@@ -50,8 +50,8 @@ ax.hist(v, bins=34, color=ACC, alpha=.85, edgecolor='white', linewidth=.6)
 ax.axvline(0, color=INK, lw=1)
 ax.set_xlabel('CAE (투구 100개당 추가 성공 수)')
 ax.set_ylabel('투수 수')
-ax.set_title('2024 CAE 분포 — %d구 이상 %d명' % (P24.n.min(), len(P24)),
-             loc='left')
+# 문턱은 100 이다. P24.n.min() 은 실제 최솟값(104)이라 제목에 쓰면 오해를 준다.
+ax.set_title('2024 CAE 분포 — 100구 이상 %d명' % len(P24), loc='left')
 sd = v.std()
 ax.text(.99, .93, '표준편차 %.1f\n상위·하위 폭 %.1f' % (sd, v.max() - v.min()),
         transform=ax.transAxes, ha='right', va='top', color=MUTE, fontsize=9)
