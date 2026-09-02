@@ -52,8 +52,8 @@ ax.set_xlabel('CAE (투구 100개당 추가 성공 수)')
 ax.set_ylabel('투수 수')
 # 문턱은 100 이다. P24.n.min() 은 실제 최솟값(104)이라 제목에 쓰면 오해를 준다.
 ax.set_title('2024 CAE 분포 — 100구 이상 %d명' % len(P24), loc='left')
-sd = v.std()
-ax.text(.99, .93, '표준편차 %.1f\n상위·하위 폭 %.1f' % (sd, v.max() - v.min()),
+ax.text(.99, .93, '표준편차 %.1f\n상위10%% - 하위10%%  %.1f'
+        % (v.std(), v.quantile(.9) - v.quantile(.1)),
         transform=ax.transAxes, ha='right', va='top', color=MUTE, fontsize=9)
 for s in ('top', 'right'):
     ax.spines[s].set_visible(False)
@@ -142,7 +142,6 @@ ax.set_ylim(min(0, min(vals)) - .05, max(vals) * 1.3)
 for r, v in zip(b, vals):
     ax.text(r.get_x() + r.get_width() / 2, v + .02, '%.3f' % v, ha='center',
             fontsize=9, color=INK)
-ax.set_title('코치의 질문 넷 — 셋은 측정되고 하나는 잡음이다', loc='left')
 for s in ('top', 'right'):
     ax.spines[s].set_visible(False)
 save(fig, '4_coach_questions.png')
@@ -161,7 +160,6 @@ ax.set_xlim(0, 1)
 for r, k in zip(b, ks):
     ax.text(fp[k]['rel'] + .012, r.get_y() + r.get_height() / 2,
             '%.3f' % fp[k]['rel'], va='center', fontsize=9, color=INK)
-ax.set_title('"어떻게 실패하나" — 반대방향이 성공률보다 안정적이다', loc='left')
 for s in ('top', 'right'):
     ax.spines[s].set_visible(False)
 save(fig, '5_failure_profile.png')
