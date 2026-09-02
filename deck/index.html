@@ -128,7 +128,7 @@ addEventListener("DOMContentLoaded",function(){
            숫자로 그렇게 나왔고, 그대로 보고한다.</p></div>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>2 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>2 / 14</span></div>
 </section>
 
 <!-- 3 ─────────────────────────────────────────────────────────── -->
@@ -161,7 +161,47 @@ addEventListener("DOMContentLoaded",function(){
         홀드아웃 수치로 채택한 적은 한 번도 없다 — 이유는 다음 장에 있다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>3 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>3 / 14</span></div>
+</section>
+
+<!-- 파이프라인 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">최종 솔루션</div>
+  <h2>제출한 것 — 130피처 · 5분류 CatBoost · 30모델</h2>
+  <div class="body cols c25" style="margin-top:6px">
+    <div>
+      <table>
+        <tr><th>단계</th><th>내용</th></tr>
+        <tr><td>입력</td><td>train 1,475,092행 x 49컬럼<br>
+            <span style="color:var(--mute)">+ 트랙맨 1,793,078행 (투수 매핑 재구축본)</span></td></tr>
+        <tr><td>전처리</td><td><span class="num">step1~18</span> 파생 ·
+            조건부 투수통계 4종 · <b>당해 시즌 복원</b> 투수 5 + 타자 2</td></tr>
+        <tr><td>지시자</td><td>범주형 조합 3 · 팀 관여 OR 플래그 10 ·
+            체제 전환 1</td></tr>
+        <tr class="hi"><td>피처</td><td><b>130개</b></td></tr>
+        <tr class="hi"><td>타겟</td><td><b>5분류</b> — 성공 / 몰림만 / 반대만 / 둘다 / 크게벗어남</td></tr>
+        <tr><td>보조</td><td>교차적합 <span class="num">P(reverse|X)</span> 1개
+            <span style="color:var(--mute)">(학습행 out-of-fold, 추론행 3폴드 평균)</span></td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card"><h3>모델</h3>
+        <p><b>CatBoost MultiClass (GPU)</b> · 10-fold x 3-seed = <b>30 모델</b><br>
+           <span class="num">iterations 1000 · depth 8 · learning_rate 0.0228</span><br>
+           seeds <span class="num">[42, 202, 2024]</span> · 학습 약 63분</p></div>
+      <div class="card" style="margin-top:12px"><h3>후처리</h3>
+        <p>폴드별 <b>IsotonicRegression</b> (이진 y 기준) -> 30모델 평균<br>
+           -> <b>재중심화</b> 로짓 상수 <span class="num">-0.0741</span><br>
+           <span style="color:var(--mute)">그 상수는 학습 시점 홀드아웃
+           (~2023 -> 2024)에서 측정해 고정한다. 평가 데이터를 보고 정하면 규정 위반이다.</span></p></div>
+      <p class="note" style="margin-top:14px">
+        <b>OOF 스킬 2.222%</b> · Private <b>1,153.6031</b><br>
+        학습 노트북과 제출용 <span class="num">script.py</span> 는 전처리 소스
+        문자열 하나를 공유한다. 두 경로가 갈라지는 것이 이 프로젝트에서 가장 비쌌던
+        버그 유형이었다 — 트랙맨 병합 방식 불일치 하나로 <b>36점</b>이 샜다.</p>
+    </div>
+  </div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>4 / 14</span></div>
 </section>
 
 <!-- 4 ─────────────────────────────────────────────────────────── -->
@@ -195,7 +235,7 @@ addEventListener("DOMContentLoaded",function(){
         <b>“다른 행에서 정보를 끌어온” 변경</b>에서 나왔다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>4 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>5 / 14</span></div>
 </section>
 
 <!-- 5 ─────────────────────────────────────────────────────────── -->
@@ -232,7 +272,7 @@ addEventListener("DOMContentLoaded",function(){
         구종 배합 3개는 <b>0</b> 이었다 — 성향은 이미 모델 안에 있었다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>5 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>6 / 14</span></div>
 </section>
 
 <!-- 6 ─────────────────────────────────────────────────────────── -->
@@ -276,7 +316,7 @@ addEventListener("DOMContentLoaded",function(){
         의미론이 <b>+29</b> 를 얹는다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>6 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>7 / 14</span></div>
 </section>
 
 <!-- 7 ─────────────────────────────────────────────────────────── -->
@@ -318,7 +358,47 @@ addEventListener("DOMContentLoaded",function(){
         확인했다. 하나 더 찾았고(<b>+7.79</b>), 그것으로 이 축은 닫혔다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>7 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>8 / 14</span></div>
+</section>
+
+<!-- 검증 ───────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">검증과 규정 준수</div>
+  <h2>제출 전에 네 가지를 매번 돌렸다</h2>
+  <p class="sub">주최측이 공지한 <b>평가 데이터 독립 예측 원칙</b>과, 학습·추론 경로가
+    조용히 갈라지는 것을 잡기 위한 자체 검사다. 전부 자동화돼 있다.</p>
+  <div class="body cols c2">
+    <div>
+      <table>
+        <tr><th>검사</th><th class="n">실측</th></tr>
+        <tr class="hi"><td><b>행 독립성</b> — 같은 행을 단독 예측 vs 전체와 함께</td><td class="n">1.11e-16</td></tr>
+        <tr><td>라벨 복원 <span class="num">success</span> vs 정답 (147만 행)</td><td class="n">1.000000</td></tr>
+        <tr><td>학습/추론 피처 대조 (공통 94개)</td><td class="n">90개 완전일치</td></tr>
+        <tr><td>상수 생존 — 상수를 지운 판과 예측 비교</td><td class="n">100.0%</td></tr>
+      </table>
+      <p class="note" style="margin-top:14px">
+        첫 줄은 <b>주최측이 공지에 직접 제시한 판정 시험</b>이다.
+        “어떤 행의 예측값은 test 에 그 행 하나만 있을 때와 전체가 함께 있을 때
+        동일해야 한다.” 그대로 구현해 매 제출 전에 돌렸다.</p>
+    </div>
+    <div>
+      <div class="card"><h3>왜 네 번째가 필요했나</h3>
+        <p>행 독립성 검사는 <b>규정만</b> 본다. 상수가 조용히 유실돼 피처가 죽어
+           있어도 통과한다 — 두 경우 모두 같은 값이 나오기 때문이다.
+           실제로 커널 산출물에서 그 버그를 잡았다.
+           <b>그대로 올렸으면 61점짜리 사고였다.</b></p></div>
+      <div class="card" style="margin-top:12px"><h3>규정상 확인한 것</h3>
+        <p>· 평가 데이터의 <b>다른 행</b>을 쓰지 않는다 (누적·rolling·빈도·순위 전부)<br>
+           · 평가 데이터 <b>전체 분포</b>로 예측값을 보정하지 않는다<br>
+           · 현재 투구 <b>이후</b>의 확정 정보를 쓰지 않는다<br>
+           · 외부 데이터를 쓰지 않는다</p></div>
+      <p class="note" style="margin-top:14px">
+        추가로 노트북 마지막 셀이 <span class="num">script.py</span> 를
+        <b>서브프로세스로 실제 실행</b>해 정답을 아는 시즌으로 채점한다.
+        “크래시 없이 끝났지만 점수가 0” 인 사고를 여러 번 겪고 넣은 절차다.</p>
+    </div>
+  </div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>9 / 14</span></div>
 </section>
 
 <!-- 8 ─────────────────────────────────────────────────────────── -->
@@ -352,7 +432,7 @@ addEventListener("DOMContentLoaded",function(){
         에서만 만들었다 — 그 시즌을 학습에 넣으면 암기로 분산이 부풀기 때문이다.</figcaption>
     </figure>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>8 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>10 / 14</span></div>
 </section>
 
 <!-- 9 ─────────────────────────────────────────────────────────── -->
@@ -391,7 +471,7 @@ addEventListener("DOMContentLoaded",function(){
         걷어낸다. 유리한 한 점만 고르지 않고 교차점을 그대로 보고한다.</figcaption>
     </figure>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>9 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>11 / 14</span></div>
 </section>
 
 <!-- 10 ────────────────────────────────────────────────────────── -->
@@ -418,7 +498,7 @@ addEventListener("DOMContentLoaded",function(){
         서로 다른 세 방법으로 확인했고, 그래서 <b>거기에 시간을 쓰지 않았다</b>.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>10 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>12 / 14</span></div>
 </section>
 
 <!-- 11 ────────────────────────────────────────────────────────── -->
@@ -445,7 +525,7 @@ addEventListener("DOMContentLoaded",function(){
         값어치가 있었다.</p>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>11 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>13 / 14</span></div>
 </section>
 
 <!-- 12 ────────────────────────────────────────────────────────── -->
@@ -491,5 +571,5 @@ addEventListener("DOMContentLoaded",function(){
            지금은 유형까지만 구분된다.</p></div>
     </div>
   </div>
-  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>12 / 12</span></div>
+  <div class="foot"><span>제구력은 하나의 숫자가 아니다</span><span>14 / 14</span></div>
 </section>
