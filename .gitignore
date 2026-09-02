@@ -268,3 +268,8 @@ kpush*/
 # screen.py 의 캐글용 기계적 사본 (mk_kscreen 의 KS_FILES 로 실어 보낸다)
 tools/scr.py
 scratch_*
+
+# 발표 자료 빌드 산출물 (제출본은 submission/01_솔루션PPT.pdf 하나만 추적한다)
+deck/solution.pdf
+deck/_new.pdf
+deck/_ovcheck.html
